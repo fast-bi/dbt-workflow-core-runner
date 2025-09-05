@@ -13,10 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configuration examples and use cases
 - Integration with Fast.BI platform documentation
 
-## [2025.0.1.2] - 2025-09-01
+## [2025.1.0.1] - 2025-09-01
 
 ### Added
-- **BETA RELEASE**: Initial launch of Fast.BI DBT Runner package
+- Initial launch of Fast.BI DBT Runner package
 - Four execution operators: K8S, Bash, API, and GKE
 - DBT manifest parsing capabilities
 - Airbyte task group builder integration
