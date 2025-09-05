@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fast-bi-dbt-runner"
-version = "2025.0.1.2"
+version = "2025.1.0.1"
 description = "A comprehensive Python library for managing DBT (Data Build Tool) DAGs within the Fast.BI data development platform"
 readme = "README.md"
 license = {text = "MIT"}
