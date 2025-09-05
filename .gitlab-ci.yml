@@ -1,0 +1,48 @@
+variables:
+  DOCKER_HOST: tcp://docker:2375
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: ""
+  PROJECT: fast-bi-common
+  REPOSITORY: bi-platform-pypi-packages
+  LOCATION: europe-central2
+
+stages:
+  - build
+  - e2e_tests
+  - confirm
+
+build-package:
+  stage: build
+  tags:
+    - bi
+  image: python:3.11  # Use a Python image
+  before_script:
+    - apt-get update && apt-get install -y curl gnupg  # Install dependencies
+    - curl -sSL https://sdk.cloud.google.com | bash  # Install Google Cloud SDK
+    - source /root/google-cloud-sdk/path.bash.inc
+    - pip install -r requirements.txt
+    - mkdir -p $HOME/.config/pip/
+    - echo "$GCP_SA_SECRET" | base64 -d > /root/sa.json
+    - gcloud auth activate-service-account --key-file /root/sa.json
+    - export GOOGLE_APPLICATION_CREDENTIALS="/root/sa.json"
+    - gcloud config set artifacts/repository ${REPOSITORY}
+    - gcloud config set artifacts/location ${LOCATION}
+    - |
+      gcloud artifacts print-settings python --project=$PROJECT \
+      --repository=$REPOSITORY \
+      --location=$LOCATION \
+      --json-key=/root/sa.json \
+      > $HOME/.pypirc
+    - |
+      gcloud artifacts print-settings python --project=$PROJECT \
+      --repository=$REPOSITORY \
+      --location=$LOCATION \
+      --json-key=/root/sa.json \
+      > $HOME/.config/pip/pip.conf
+    - pip install setuptools-git-versioning
+  script:
+    - python setup.py sdist bdist_wheel
+    - python -m twine upload -r $REPOSITORY dist/* --verbose
+  only:
+    - tags
+  interruptible: true

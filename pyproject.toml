@@ -1,0 +1,144 @@
+[build-system]
+requires = ["setuptools>=45.0.0", "wheel>=0.37.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fast-bi-dbt-runner"
+version = "2025.0.1.2"
+description = "A comprehensive Python library for managing DBT (Data Build Tool) DAGs within the Fast.BI data development platform"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Fast.BI", email = "support@fast.bi"}
+]
+maintainers = [
+    {name = "Fast.BI", email = "administrator@fast.bi"}
+]
+keywords = [
+    "dbt",
+    "data-build-tool",
+    "airflow",
+    "kubernetes",
+    "data-pipeline",
+    "etl",
+    "data-engineering",
+    "fast-bi",
+    "data-orchestration",
+    "gke",
+    "bash-operator",
+    "api-operator",
+    "workflow",
+    "data-workflow",
+    "manifest-parser"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Distributed Computing",
+    "Framework :: Apache Airflow",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Quality Assurance",
+]
+requires-python = ">=3.9,<3.13"
+dependencies = [
+    "kubernetes>=18.0.0",
+    "google-cloud-storage>=2.0.0",
+    "google-auth>=2.26.1",
+    "requests>=2.25.0",
+    "pyyaml>=5.4.0",
+    "jinja2>=3.0.0",
+]
+
+[project.optional-dependencies]
+airflow = [
+    "apache-airflow[kubernetes]>=2.7.0,<3.0.0",
+]
+dev = [
+    "black>=21.0.0",
+    "flake8>=3.8.0",
+    "mypy>=0.800",
+    "pre-commit>=2.15.0",
+    "twine>=3.0.0",
+    "wheel>=0.37.0",
+]
+docs = [
+    "sphinx>=4.0.0",
+    "sphinx-rtd-theme>=1.0.0",
+    "myst-parser>=0.15.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/fast-bi/dbt-workflow-core-runner"
+Documentation = "https://wiki.fast.bi/en/User-Guide/Data-Orchestration/Data-Model-CICD-Configuration"
+Repository = "https://github.com/fast-bi/dbt-workflow-core-runner"
+"Bug Tracker" = "https://github.com/fast-bi/dbt-workflow-core-runner/issues"
+Changelog = "https://github.com/fast-bi/dbt-workflow-core-runner/blob/main/CHANGELOG.md"
+"Documentation Site" = "https://fast-bi.github.io/dbt-workflow-core-runner/"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["fast_bi_dbt_runner*"]
+
+[tool.black]
+line-length = 127
+target-version = ['py39', 'py310', 'py311', 'py312']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.flake8]
+max-line-length = 127
+max-complexity = 10
+exclude = [
+    ".git",
+    "__pycache__",
+    "build",
+    "dist",
+    "*.egg-info",
+    ".venv",
+    "venv",
+]
+ignore = [
+    "E203",  # whitespace before ':'
+    "W503",  # line break before binary operator
+    "E501",  # line too long (handled by black)
+]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true

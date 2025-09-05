@@ -1,0 +1,13 @@
+include README.md
+include CHANGELOG.md
+include LICENSE
+include requirements.txt
+include setup.py
+recursive-include fast_bi_dbt_runner *.py
+recursive-include docs *
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude __pycache__
+global-exclude .DS_Store
+global-exclude *.iml
+global-exclude .git*
