@@ -18,7 +18,7 @@ def get_valid_start_date(start_date_raw):
 
     # Check if start_date_raw follows the correct ISO format
     try:
-        return datetime.fromisoformat(start_date_raw)  # Parse as ISO datetime
+        return datetime.datetime.fromisoformat(start_date_raw)  # Parse as ISO datetime
     except ValueError:
         raise ValueError(
             f"Invalid start_date format: {start_date_raw}. Must be ISO format (YYYY-MM-DDTHH:MM:SS) or 'days_ago(N)'.")
