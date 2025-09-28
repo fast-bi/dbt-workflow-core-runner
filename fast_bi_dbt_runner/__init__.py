@@ -3,7 +3,7 @@
 # Airflow-dependent operators are imported conditionally to avoid import errors
 # when Airflow is not available
 
-__version__ = "2025.0.1.2"
+__version__ = "2025.1.0.2"
 
 try:
     from fast_bi_dbt_runner.dbt_manifest_parser_api_operator import *

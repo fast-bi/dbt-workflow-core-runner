@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configuration examples and use cases
 - Integration with Fast.BI platform documentation
 
+## [2025.1.0.2] - 2025-01-15
+
+### Fixed
+- Fixed datetime parsing issue in `get_valid_start_date()` function in `utils.py`
+- Improved ISO datetime parsing to properly handle datetime objects from DAG configurations
+- Resolved customer issues with datetime parsing from DAG start dates
+
 ## [2025.1.0.1] - 2025-09-01
 
 ### Added
