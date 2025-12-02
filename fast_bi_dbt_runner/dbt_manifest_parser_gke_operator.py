@@ -6,6 +6,7 @@ from airflow.exceptions import AirflowException
 from airflow.utils.task_group import TaskGroup
 from airflow.providers.google.cloud.operators.kubernetes_engine import GKEStartPodOperator
 import fast_bi_dbt_runner.utils as utils
+from fast_bi_dbt_runner.cached_manifest_loader import load_dbt_manifest_cached
 
 
 class CustomGKEStartPodOperator(GKEStartPodOperator):
@@ -70,7 +71,7 @@ class DbtManifestParser:
         self.manifest_path = manifest_path
         self.dbt_tag_ancestors = kwargs.get("dbt_tag_ancestors", False)
         self.dbt_tag_descendants = kwargs.get("dbt_tag_descendants", False)
-        self.manifest_data = utils.load_dbt_manifest(self.manifest_path,
+        self.manifest_data = load_dbt_manifest_cached(self.manifest_path,
                                                      dbt_tag=self.dbt_tag,
                                                      dbt_tag_ancestors=self.dbt_tag_ancestors,
                                                      dbt_tag_descendants=self.dbt_tag_descendants)

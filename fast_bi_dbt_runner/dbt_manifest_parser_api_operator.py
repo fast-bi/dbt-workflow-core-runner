@@ -14,6 +14,7 @@ from itertools import chain
 from time import sleep
 from airflow.exceptions import AirflowFailException
 import fast_bi_dbt_runner.utils as utils
+from fast_bi_dbt_runner.cached_manifest_loader import load_dbt_manifest_cached
 
 
 
@@ -47,10 +48,10 @@ class DbtManifestParser:
         self.manifest_path = manifest_path
         self.dbt_tag_ancestors = kwargs.get("dbt_tag_ancestors", False)
         self.dbt_tag_descendants = kwargs.get("dbt_tag_descendants", False)
-        self.manifest_data = utils.load_dbt_manifest(self.manifest_path,
-                                                                          dbt_tag=self.dbt_tag,
-                                                                          dbt_tag_ancestors=self.dbt_tag_ancestors,
-                                                                          dbt_tag_descendants=self.dbt_tag_descendants)
+        self.manifest_data = load_dbt_manifest_cached(self.manifest_path,
+                                                     dbt_tag=self.dbt_tag,
+                                                     dbt_tag_ancestors=self.dbt_tag_ancestors,
+                                                     dbt_tag_descendants=self.dbt_tag_descendants)
         self.dbt_tasks = {}
         self.connection_id = connection_id
         self.dbt_log_format_file = "debug" if self.airflow_vars.get("MODEL_DEBUG_LOG") \
