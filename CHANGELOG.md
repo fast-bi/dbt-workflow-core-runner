@@ -5,9 +5,31 @@ All notable changes to the Fast.BI DBT Runner package will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2025.2.0.0b2] - 2025-12-09 (Pre-release)
 
-## [2025.2.0.0b1] - 2025-01-XX (Pre-release)
+### Fixed
+- **Circular Dependency Issue in Source Task Groups**: Fixed `AirflowDagCycleException` when tests reference sources
+  - **Root Cause**: Tests that reference sources (via `source()` function) were incorrectly included in the "sources" task group, causing circular dependencies
+  - **How it happened**: 
+    - Tests get their `group_type` assigned based on what they depend on (from `utils.py` line 322-323)
+    - Tests referencing sources get `"source"` added to their `group_type` (e.g., `["model", "source"]`)
+    - When creating source freshness task groups, the parser included all nodes with `"source"` in `group_type`, including tests
+    - This caused cycles because tests depend on both models and sources, creating circular dependency chains
+  - **The Fix**: 
+    - Excluded tests from source task group creation in all 4 parser implementations:
+      - `dbt_manifest_parser_bash_operator.py`
+      - `dbt_manifest_parser_k8s_operator.py`
+      - `dbt_manifest_parser_gke_operator.py`
+      - `dbt_manifest_parser_api_operator.py`
+    - Tests now only run with models (where they belong), not as part of source freshness checks
+    - Simplified `set_dependencies()` to only set dependencies for nodes that were actually created as tasks
+  - **Impact**: 
+    - DAGs with tests referencing sources no longer fail with cycle detection errors
+    - Tests still execute correctly as part of the models task group
+    - Source freshness checks remain isolated and don't include tests
+  - **Example**: Test `test_store_translation_mapping_coverage.sql` that uses both `ref('stg_questions')` and `source('prod_shopify_fairing_surveys', 'mp_survey_questions')` no longer causes DAG cycle errors
+
+## [2025.2.0.0b1] - 2025-12-02 (Pre-release)
 
 ### ⚠️ BREAKING CHANGES - Beta Release
 This is a **PRE-RELEASE** version containing major performance optimizations. Please test thoroughly in development/staging environments before production deployment.

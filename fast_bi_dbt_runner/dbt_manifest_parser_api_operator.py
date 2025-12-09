@@ -239,6 +239,10 @@ class DbtManifestParser:
         """
         for node in self.manifest_data.keys():
             if resource_type in self.manifest_data[node]['group_type']:
+                # Only set dependencies for nodes that were actually created as tasks
+                if node not in self.dbt_tasks:
+                    continue
+                
                 for upstream_node in self.manifest_data[node].get("depends_on", []):
                     if self.dbt_tasks.get(upstream_node, []):
                         self.dbt_tasks[upstream_node] >> self.dbt_tasks[node]
@@ -278,6 +282,9 @@ class DbtManifestParser:
             # Initialize the root TaskGroup from `group_name` (should be a TaskGroup instance, not a string)
             with TaskGroup(group_id=group_name, parent_group=None) as root_group:
                 for node_id, node_data in self.manifest_data.items():
+                    # Skip tests when creating source task groups - tests should run separately, not as part of source freshness
+                    if resource_type == "source" and node_data.get('resource_type') == 'test':
+                        continue
                     if group_name[:-1] in node_data["group_type"]:
                         # Extract FQN and task name
                         fqn = node_data["fqn"][:-1]  # Remove model name from the FQN
