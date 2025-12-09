@@ -27,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - DAGs with tests referencing sources no longer fail with cycle detection errors
     - Tests still execute correctly as part of the models task group
     - Source freshness checks remain isolated and don't include tests
-  - **Example**: Test `test_store_translation_mapping_coverage.sql` that uses both `ref('stg_questions')` and `source('prod_shopify_fairing_surveys', 'mp_survey_questions')` no longer causes DAG cycle errors
+  - **Example**: A test file that uses both `ref('stg_example_model')` and `source('example_schema', 'example_source_table')` no longer causes DAG cycle errors
 
 ## [2025.2.0.0b1] - 2025-12-02 (Pre-release)
 
