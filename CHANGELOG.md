@@ -5,6 +5,36 @@ All notable changes to the Fast.BI DBT Runner package will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2026.1.0.0] - 2026-02-18 (Release)
+
+### Changed
+- **Target path**: Use last segment of task_id for per-task target path (e.g. `models.burga.base.foo.model_name` → `/tmp/target_model_name`) for shorter, cleaner paths.
+- **dbt CLI**: Use `--select` instead of deprecated `--models` when passing model selection to dbt run/test.
+- **Per-DAG+task target isolation**: Prefix per-task target path with a short, stable hash of `dag_id` when available (e.g. `/tmp/target_<dag_hash>_model_name`) so each DAG/task pair reuses its own consistent target directory without risking OS path length limits.
+
+## [2026.1.0.0b2] - 2026-02-18 (Pre-release)
+
+### Fixed
+- **Per-task --target-path**: Only pass `--target-path` for dbt commands that use the target directory (`run`, `test`, `seed`, `snapshot`). Other commands (`deps`, `debug`, `source freshness`, etc.) no longer receive `--target-path`, avoiding unsupported flag usage per [dbt command reference](https://docs.getdbt.com/category/list-of-commands).
+
+## [2026.1.0.0b1] - 2026-02-18 (Pre-release)
+
+### Added
+- **DBT_DEPS flag (DAG template)**: Optional `dbt deps` step at the start of the DAG
+  - New Airflow variable `DBT_DEPS` (default: `True`). When set to `False`, the `install_dbt_dependencies` task is not created, so DAGs can rely on packages vendored in the repo for stable, scaling-friendly runs.
+  - Implemented in `data-orchestrator-core` template and compatible generated DAGs (e.g. bash operator).
+- **Per-task dbt target path (bash operator)**: Avoid concurrent dbt runs sharing the same target directory
+  - Commands that use the target directory (`run`, `test`, `seed`, `snapshot`) now use `--target-path /tmp/target_{task_id}/` by default so parallel tasks no longer conflict. Other commands (e.g. `deps`, `debug`, `source freshness`) do not pass `--target-path` as they do not use it per [dbt command reference](https://docs.getdbt.com/category/list-of-commands).
+  - Implemented in `DbtCliHook` and `DbtBaseOperator`; task ID is sanitized for use as a directory name.
+
+### Changed
+- **DAG template (bash operator)**: Start-of-DAG flow now conditionally includes `dbt deps` and correctly chains Airbyte → (optional deps) → (optional debug) → `show_input_data` when `DBT_DEPS` is toggled.
+
+### Technical details
+- `dbt_hook.py`: Added `task_id` and `target_path` to `DbtCliHook`; `run_cli()` appends `--target-path` when set.
+- `dbt_operator.py`: Passes `task_id` into the hook so each task gets a unique target path.
+- Version source: `setup.py` now reads version from `pyproject.toml` when `CI_COMMIT_TAG` is not set, keeping a single source of truth for local builds.
+
 ## [2025.2.0.0b2] - 2025-12-09 (Pre-release)
 
 ### Fixed

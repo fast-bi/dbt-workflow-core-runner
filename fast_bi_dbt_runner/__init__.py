@@ -3,7 +3,7 @@
 # Airflow-dependent operators are imported conditionally to avoid import errors
 # when Airflow is not available
 
-__version__ = "2025.2.0.0b2"
+__version__ = "2026.1.0.0"
 
 # Export cached manifest loader for direct use
 from fast_bi_dbt_runner.cached_manifest_loader import (

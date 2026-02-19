@@ -111,7 +111,9 @@ class DbtBaseOperator(BaseOperator):
             verbose=self.verbose,
             warn_error=self.warn_error,
             warehouse_type=self.warehouse_type,
-            debug=self.debug)
+            debug=self.debug,
+            dag_id=getattr(self, 'dag_id', None),
+            task_id=getattr(self, 'task_id', None))
 
         return self.hook
 

@@ -1,10 +1,12 @@
 from __future__ import print_function
 import os
+import re
 import signal
 import subprocess
 import json
 import socket
 import sys
+import hashlib
 from pathlib import Path
 from filelock import FileLock
 from airflow.exceptions import AirflowException
@@ -27,7 +29,7 @@ class DbtCliHook(BaseHook):
     :type vars: dict
     :param full_refresh: If `True`, will fully-refresh incremental models.
     :type full_refresh: bool
-    :param models: If set, passed as the `--models` argument to the `dbt` command
+    :param models: If set, passed as the `--select` argument to the `dbt` command (dbt recommends --select over deprecated --models)
     :type models: str
     :param warn_error: If `True`, treat warnings as errors.
     :type warn_error: bool
@@ -47,6 +49,14 @@ class DbtCliHook(BaseHook):
     :type warehouse_type: str
     :param debug: If `True`, enables debug logging
     :type debug: bool
+        :param dag_id: Airflow DAG ID; used (via short hash) together with task_id
+            to build a stable, per-DAG+task --target-path while keeping paths short.
+        :type dag_id: str
+        :param task_id: Airflow task ID; used to build a per-task --target-path.
+    :type task_id: str
+    :param target_path: Override directory for dbt target output. If None and dag_id/task_id are set,
+        defaults to /tmp/target_{sanitized_dag_id}_{sanitized_task_id_last_segment}/.
+    :type target_path: str
     """
 
     # Map for backward compatibility with DATA_WAREHOUSE_PLATFORM
@@ -76,11 +86,33 @@ class DbtCliHook(BaseHook):
                  warn_error=False,
                  git_branch=None,
                  warehouse_type=None,
-                 debug=False):
+                 debug=False,
+                 dag_id=None,
+                 task_id=None,
+                 target_path=None):
         self.env = env or {}
         self.profiles_dir = profiles_dir
         self.dbt_project_dir = dbt_project_dir
         self.target = target
+        # Per-task target path to avoid concurrent dbt runs sharing the same target directory.
+        # Use last segment of task_id (e.g. models.foo.bar.model_name -> model_name) for shorter paths.
+        # If dag_id is available, prefix with a short, filesystem-safe hash of dag_id so that
+        # the same DAG/task pair reuses the same target directory while keeping the path short.
+        if target_path is not None:
+            self.target_path = target_path.rstrip('/')
+        elif task_id is not None:
+            short_id = str(task_id).rsplit('.', 1)[-1] if '.' in str(task_id) else str(task_id)
+            safe_task = re.sub(r'[^\w\-.]', '_', short_id)
+            dag_hash = None
+            if dag_id is not None:
+                # Use a short hex digest to keep paths well under OS limits.
+                dag_hash = hashlib.sha1(str(dag_id).encode("utf-8")).hexdigest()[:8]
+            if dag_hash:
+                self.target_path = f"/tmp/target_{dag_hash}_{safe_task}"
+            else:
+                self.target_path = f"/tmp/target_{safe_task}"
+        else:
+            self.target_path = None
         self.vars = vars
         self.full_refresh = full_refresh
         self.data = data
@@ -94,6 +126,7 @@ class DbtCliHook(BaseHook):
         self.warn_error = warn_error
         self.output_encoding = output_encoding
         self.git_branch = git_branch
+        self.dag_id = dag_id
         self.worker_id = socket.gethostname()
         self._debug = debug
         
@@ -407,6 +440,9 @@ class DbtCliHook(BaseHook):
         if self.target is not None:
             dbt_cmd.extend(['--target', self.target])
 
+        if self.target_path is not None and command and command[0] in ('run', 'test', 'seed', 'snapshot'):
+            dbt_cmd.extend(['--target-path', self.target_path])
+
         if self.vars is not None:
             dbt_cmd.extend(['--vars', self._dump_vars()])
 
@@ -417,7 +453,7 @@ class DbtCliHook(BaseHook):
             dbt_cmd.extend(['--schema'])
 
         if self.models is not None:
-            dbt_cmd.extend(['--models', self.models])
+            dbt_cmd.extend(['--select', self.models])
 
         if self.exclude is not None:
             dbt_cmd.extend(['--exclude', self.exclude])

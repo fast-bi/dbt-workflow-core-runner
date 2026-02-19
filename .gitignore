@@ -6,3 +6,5 @@ env/
 .eggs/*
 .temp/*
 COMMIT_MESSAGE.mds
+release.md
+.DS_Store
