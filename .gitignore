@@ -5,3 +5,6 @@ env/
 *.egg-info/
 .eggs/*
 .temp/*
+COMMIT_MESSAGE.mds
+release.md
+.DS_Store

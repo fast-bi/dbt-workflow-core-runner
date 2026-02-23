@@ -1,8 +1,21 @@
 import os
+import re
+from pathlib import Path
 from setuptools import setup, find_packages
 
-# Get the version from the environment variable or default to '0.0.0'
-version = os.getenv('CI_COMMIT_TAG', '0.0.0')
+# Single source of truth: read version from pyproject.toml (CI may override via CI_COMMIT_TAG)
+def _get_version():
+    if os.getenv('CI_COMMIT_TAG'):
+        return os.getenv('CI_COMMIT_TAG').lstrip('v')
+    pyproject = Path(__file__).resolve().parent / "pyproject.toml"
+    if pyproject.exists():
+        content = pyproject.read_text(encoding='utf-8')
+        m = re.search(r'version\s*=\s*["\']([^"\']+)["\']', content)
+        if m:
+            return m.group(1)
+    return '0.0.0'
+
+version = _get_version()
 
 setup(
     name="fast_bi_dbt_runner",
