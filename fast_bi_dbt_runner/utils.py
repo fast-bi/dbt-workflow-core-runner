@@ -214,7 +214,9 @@ def get_tagged_models(manifest_data, relatives_map, dbt_tag):
     tagged_models = list(filtered_tasks.keys())
     result = set(tagged_models)
     for model in tagged_models:
-        collect_relatives(manifest_data, model, relatives_map, result)
+        collect_relatives(manifest_data, model, relatives_map, result) 
+    # Only include nodes that have one of the requested tags (exclude ancestors/descendants without the tag)
+    result = {node_id for node_id in result if any(tag in manifest_data[node_id].get("tags", []) for tag in dbt_tag)}
     return {node_id: manifest_data[node_id] for node_id in result}
 
 
