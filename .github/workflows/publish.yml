@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - '2025.*.*.*'  # Trigger on year.major.minor.bugfix tags
+      - '2026.*.*.*'
   workflow_dispatch:  # Allow manual triggering
 
 jobs:
