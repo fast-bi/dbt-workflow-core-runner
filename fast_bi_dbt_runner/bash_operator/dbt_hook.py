@@ -192,6 +192,45 @@ class DbtCliHook(BaseHook):
         """Log error regardless of debug setting"""
         self.log.error(message)
 
+    def _log_compiled_sql_context(self, paths: list) -> None:
+        """
+        On dbt failure, log contents of compiled/run SQL files referenced in dbt output
+        so that Airflow logs show the failing SQL context before the exception.
+        """
+        for path in paths:
+            path = path.strip()
+            if not path:
+                continue
+            if not os.path.isfile(path):
+                self._log_warning(
+                    "[Worker: %s] Compiled SQL path not found (may be on another worker): %s",
+                    self.worker_id,
+                    path,
+                )
+                continue
+            try:
+                with open(path, "r", encoding=self.output_encoding) as f:
+                    content = f.read()
+                self._log_info(
+                    "[Worker: %s] ----- Compiled SQL context: %s -----",
+                    self.worker_id,
+                    path,
+                )
+                for sql_line in content.splitlines():
+                    self._log_info("  %s", sql_line)
+                self._log_info(
+                    "[Worker: %s] ----- End compiled SQL: %s -----",
+                    self.worker_id,
+                    path,
+                )
+            except OSError as e:
+                self._log_warning(
+                    "[Worker: %s] Could not read compiled SQL file %s: %s",
+                    self.worker_id,
+                    path,
+                    e,
+                )
+
     def _determine_warehouse_type(self, warehouse_type: str = None) -> str:
         """
         Determine the warehouse type with backward compatibility.
@@ -539,11 +578,22 @@ class DbtCliHook(BaseHook):
 
         self.sp = sp
         self._log_info("Output:")
+        compiled_code_paths = []
         line = ''
         for line in iter(sp.stdout.readline, b''):
             line = line.decode(self.output_encoding).rstrip()
             self._log_info(line)
+            if "compiled code at " in line:
+                path = line.split("compiled code at ", 1)[1].strip()
+                if path and path not in compiled_code_paths:
+                    compiled_code_paths.append(path)
         sp.wait()
+
+        # Only log compiled SQL when command failed and dbt printed "compiled code at" paths
+        # (e.g. run/test do; source freshness, deps, debug do not - no-op for those)
+        if sp.returncode and compiled_code_paths:
+            self._log_compiled_sql_context(compiled_code_paths)
+
         self._log_info(
             "Command exited with return code %s",
             sp.returncode

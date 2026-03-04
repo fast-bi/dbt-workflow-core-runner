@@ -5,7 +5,12 @@ All notable changes to the Fast.BI DBT Runner package will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2026.1.0.0] - 2026-02-18 (Release)
+## [2026.1.0.2] - 2026-03-04
+
+### Added
+- **Error handling (dbt hook)**: When a dbt command fails and dbt prints "compiled code at" paths (e.g. for `dbt run` or `dbt test`), the hook now logs the contents of those compiled/run SQL files into Airflow task logs before the "Command exited with return code" line. This makes it easier to debug failures without opening the worker or re-running locally. Commands that do not emit "compiled code at" (e.g. `dbt source freshness`, `dbt deps`, `dbt debug`) are unchanged.
+
+## [2026.1.0.0-.1] - 2026-02-18 (Release)
 
 ### Changed
 - **Target path**: Use last segment of task_id for per-task target path (e.g. `models.burga.base.foo.model_name` → `/tmp/target_model_name`) for shorter, cleaner paths.
