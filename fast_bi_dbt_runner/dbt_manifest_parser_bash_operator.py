@@ -77,7 +77,8 @@ class DbtManifestParser:
                     git_branch=git_branch,
                     warehouse_type=warehouse_type,
                     task_group=parent_group,
-                    debug=self.debug
+                    debug=self.debug,
+                    empty=True if self.airflow_vars.get("E2E_MODE_EMPTY") else False
                 )
             elif dbt_command == 'test':
                 dbt_run = DbtTestOperator(

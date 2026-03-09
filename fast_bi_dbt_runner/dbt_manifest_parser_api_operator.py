@@ -178,6 +178,9 @@ class DbtManifestParser:
         if dbt_command != "test" and dbt_command != "freshness" and task_params.get('full_refresh') is True:
             full_command_list.append("-f")
 
+        if dbt_command == "run" and self.airflow_vars.get("E2E_MODE_EMPTY"):
+            full_command_list.append("--empty")
+
         if task_params.get("DBT_VAR"):
             full_command_list.extend(["--vars", task_params.get("DBT_VAR")])
 

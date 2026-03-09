@@ -38,6 +38,8 @@ class DbtBaseOperator(BaseOperator):
     :type warehouse_type: str
     :param debug: If `True`, passes the debug flag to the DbtCliHook
     :type debug: bool
+    :param empty: If `True`, pass `--empty` to dbt run (E2E empty mode). Run command only.
+    :type empty: bool
     """
 
     @apply_defaults
@@ -60,6 +62,7 @@ class DbtBaseOperator(BaseOperator):
                  schema=False,
                  warehouse_type=None,
                  debug=False,
+                 empty=False,
                  *args,
                  **kwargs):
         super(DbtBaseOperator, self).__init__(*args, **kwargs)
@@ -90,6 +93,7 @@ class DbtBaseOperator(BaseOperator):
         self.warn_error = warn_error
         self.warehouse_type = warehouse_type
         self.debug = debug
+        self.empty = empty
         self.create_hook()
 
     def create_hook(self):
@@ -113,7 +117,8 @@ class DbtBaseOperator(BaseOperator):
             warehouse_type=self.warehouse_type,
             debug=self.debug,
             dag_id=getattr(self, 'dag_id', None),
-            task_id=getattr(self, 'task_id', None))
+            task_id=getattr(self, 'task_id', None),
+            empty=self.empty)
 
         return self.hook
 
