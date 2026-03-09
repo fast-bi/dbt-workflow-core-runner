@@ -105,6 +105,9 @@ class DbtManifestParser:
         else:
             env_vars_with_model.append(k8s.V1EnvVar(name="SEED", value="false"))
 
+        if dbt_command == "run" and self.airflow_vars.get("E2E_MODE_EMPTY"):
+            env_vars_with_model.append(k8s.V1EnvVar(name="E2E_MODE_EMPTY", value="true"))
+
         if task_params:
             env_vars_with_model_keys = [i.name for i in env_vars_with_model]
             kuber_dag_new_params = [k8s.V1EnvVar(name=k, value=str(v)) for k, v in task_params.items() if

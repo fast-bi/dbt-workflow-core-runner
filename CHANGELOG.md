@@ -5,6 +5,14 @@ All notable changes to the Fast.BI DBT Runner package will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2026.1.0.3] - 2026-03-09
+
+### Added
+- **E2E empty mode (`--empty` for dbt run)**: New Airflow variable `E2E_MODE_EMPTY` enables passing the `--empty` flag to `dbt run` only (for E2E empty runs).
+  - **Bash operator**: `DbtCliHook` and `DbtBaseOperator` accept an `empty` parameter; when `E2E_MODE_EMPTY` is set in `airflow_vars`, `DbtRunOperator` receives `empty=True` and the hook appends `--empty` to the run command.
+  - **API operator**: When building the command list for run tasks, appends `--empty` if `E2E_MODE_EMPTY` is set.
+  - **GKE / K8s operators**: When `E2E_MODE_EMPTY` is set, the pod receives env var `E2E_MODE_EMPTY=true` for run tasks; the runner image must read this and add `--empty` to the dbt run invocation.
+
 ## [2026.1.0.2] - 2026-03-04
 
 ### Added

@@ -57,6 +57,8 @@ class DbtCliHook(BaseHook):
     :param target_path: Override directory for dbt target output. If None and dag_id/task_id are set,
         defaults to /tmp/target_{sanitized_dag_id}_{sanitized_task_id_last_segment}/.
     :type target_path: str
+    :param empty: If ``True``, pass ``--empty`` to the dbt command (run only). Used for E2E empty runs.
+    :type empty: bool
     """
 
     # Map for backward compatibility with DATA_WAREHOUSE_PLATFORM
@@ -89,7 +91,8 @@ class DbtCliHook(BaseHook):
                  debug=False,
                  dag_id=None,
                  task_id=None,
-                 target_path=None):
+                 target_path=None,
+                 empty=False):
         self.env = env or {}
         self.profiles_dir = profiles_dir
         self.dbt_project_dir = dbt_project_dir
@@ -113,6 +116,7 @@ class DbtCliHook(BaseHook):
                 self.target_path = f"/tmp/target_{safe_task}"
         else:
             self.target_path = None
+        self.empty = empty
         self.vars = vars
         self.full_refresh = full_refresh
         self.data = data
@@ -481,6 +485,9 @@ class DbtCliHook(BaseHook):
 
         if self.target_path is not None and command and command[0] in ('run', 'test', 'seed', 'snapshot'):
             dbt_cmd.extend(['--target-path', self.target_path])
+
+        if command and command[0] == 'run' and self.empty:
+            dbt_cmd.extend(['--empty'])
 
         if self.vars is not None:
             dbt_cmd.extend(['--vars', self._dump_vars()])
