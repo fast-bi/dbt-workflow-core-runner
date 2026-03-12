@@ -114,6 +114,7 @@ class DbtManifestParser:
                     models=models,
                     dbt_project_dir=self.dbt_project_dir,
                     target=target,
+                    git_branch=git_branch,
                     warehouse_type=warehouse_type,
                     task_group=parent_group,
                     debug=self.debug
