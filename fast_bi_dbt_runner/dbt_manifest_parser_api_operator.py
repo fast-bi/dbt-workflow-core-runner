@@ -168,6 +168,10 @@ class DbtManifestParser:
                                      dbt_command,
                                      "--exclude",
                                      "package:re_data"]
+            elif dbt_command == "snapshot":
+                full_command_list = ["--log-level-file",
+                                     self.dbt_log_format_file,
+                                     "snapshot"]
             else:
                 full_command_list = ["--log-level-file",
                                      self.dbt_log_format_file,
@@ -175,7 +179,7 @@ class DbtManifestParser:
                                      "--exclude",
                                      "package:re_data"]
 
-        if dbt_command != "test" and dbt_command != "freshness" and task_params.get('full_refresh') is True:
+        if dbt_command not in ("test", "freshness", "snapshot") and task_params.get('full_refresh') is True:
             full_command_list.append("-f")
 
         if dbt_command == "run" and self.airflow_vars.get("E2E_MODE_EMPTY"):
@@ -306,6 +310,12 @@ class DbtManifestParser:
                                                                 dbt_command,
                                                                 "--select",
                                                                 task_name]
+                            elif dbt_command == "snapshot":
+                                full_command_with_model_name = ["--log-level-file",
+                                                                self.dbt_log_format_file,
+                                                                "snapshot",
+                                                                "--select",
+                                                                task_name]
                             else:
                                 full_command_with_model_name = ["--log-level-file",
                                                                 self.dbt_log_format_file,
@@ -323,6 +333,10 @@ class DbtManifestParser:
                                                                 dbt_command,
                                                                 "--exclude",
                                                                 "package:re_data"]
+                            elif dbt_command == "snapshot":
+                                full_command_with_model_name = ["--log-level-file",
+                                                                self.dbt_log_format_file,
+                                                                "snapshot"]
                             else:
                                 full_command_with_model_name = ["--log-level-file",
                                                                 self.dbt_log_format_file,

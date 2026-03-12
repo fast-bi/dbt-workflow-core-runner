@@ -117,6 +117,8 @@ class DbtManifestParser:
 
         if dbt_command == "snapshot":
             env_vars_with_model.append(k8s.V1EnvVar(name="SNAPSHOT", value="true"))
+            if self.airflow_vars.get("GIT_BRANCH"):
+                env_vars_with_model.append(k8s.V1EnvVar(name="GIT_BRANCH", value=str(self.airflow_vars.get("GIT_BRANCH"))))
             if not airflow_var.get('DBT_SNAPSHOT_INTERVAL') or airflow_var['DBT_SNAPSHOT_INTERVAL'] == 'daily':
                 env_vars_with_model.append(k8s.V1EnvVar(name="SNAPSHOT_RUN_PERIOD", value="true"))
             else:

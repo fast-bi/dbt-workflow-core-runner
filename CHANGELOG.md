@@ -5,6 +5,17 @@ All notable changes to the Fast.BI DBT Runner package will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2026.1.0.4] - 2026-03-12
+
+### Added
+- **Snapshot: GIT_BRANCH support**
+  - **Bash operator**: `DbtSnapshotOperator` now accepts and passes `git_branch` (from Airflow vars `GIT_BRANCH`), so snapshot tasks run with the same branch context as run/test/seed when the pipeline sets it.
+  - **K8s operator**: Snapshot tasks receive env var `GIT_BRANCH` in the pod when `GIT_BRANCH` is set in Airflow variables.
+  - **GKE operator**: Same as K8s — snapshot tasks get `GIT_BRANCH` env var from Airflow variables when set.
+- **API operator: snapshot command support**
+  - Snapshot is now fully supported: default command list for `dbt snapshot` (no `--exclude package:re_data`), and correct command building in task groups for single-snapshot (`--select <name>`) and run-all-snapshots.
+  - Snapshot is excluded from the full-refresh (`-f`) flag, which does not apply to `dbt snapshot`.
+
 ## [2026.1.0.3] - 2026-03-09
 
 ### Added
