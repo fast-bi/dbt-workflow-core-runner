@@ -12,16 +12,16 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.9", "3.10", "3.11", "3.12"]
-        
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
+
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
-        
+
     - name: Cache pip dependencies
       uses: actions/cache@v4
       with:
@@ -29,29 +29,40 @@ jobs:
         key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('**/requirements.txt') }}
         restore-keys: |
           ${{ runner.os }}-pip-${{ matrix.python-version }}-
-          
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip setuptools wheel
         pip install -r requirements.txt
         pip install flake8 black mypy
-        
+
+    - name: Run tests
+      run: |
+        python -m pytest tests/ -v --tb=short --junitxml=test-results.xml
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results-${{ matrix.python-version }}
+        path: test-results.xml
+
     - name: Lint with flake8
       run: |
         flake8 fast_bi_dbt_runner/ --count --select=E9,F63,F7,F82 --show-source --statistics || (echo "⚠️  Flake8 critical errors found - this is informational only and won't block the build" && true)
         flake8 fast_bi_dbt_runner/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics || (echo "⚠️  Flake8 style warnings found - this is informational only and won't block the build" && true)
       continue-on-error: true
-        
+
     - name: Check formatting with black
       run: |
         black --check fast_bi_dbt_runner/ || (echo "⚠️  Black formatting check failed - this is informational only and won't block the build" && true)
       continue-on-error: true
-        
+
     - name: Type check with mypy
       run: |
         mypy fast_bi_dbt_runner/ --ignore-missing-imports || (echo "⚠️  MyPy type checking warnings found - this is informational only and won't block the build" && true)
       continue-on-error: true
-        
+
     - name: Build package
       run: |
         pip install build
