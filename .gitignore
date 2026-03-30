@@ -1,10 +1,59 @@
+# IDE / editors
 .idea/
-build/*
-dist/*
+.vscode/
+*.iml
+
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Test / type-check / lint caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
 env/
+
+# Build / packaging
+build/
+dist/
 *.egg-info/
-.eggs/*
-.temp/*
+.eggs/
+
+# Packaging / temp dirs
+.temp/
+
+# Lint / coverage outputs
+.tox/
+.nox/
+coverage.xml
+*.log
+
+# DBT generated artifacts (common when working with dbt)
+target/
+dbt_modules/
+dbt_packages/
+logs/
+
+# Environment files / secrets
+.env
+.env.*
+!.env.example
+
+# OS files
+.DS_Store
+
+# Release/automation files
 COMMIT_MESSAGE.mds
 release.md
-.DS_Store
+
+# AI
+.claude/

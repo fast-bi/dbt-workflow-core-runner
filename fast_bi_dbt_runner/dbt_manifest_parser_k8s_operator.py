@@ -318,6 +318,44 @@ class DbtManifestParser:
                     if self.dbt_tasks.get(upstream_node, []):
                         self.dbt_tasks[upstream_node] >> self.dbt_tasks[node]
 
+    def get_model_names_for_resource_type(self, resource_type, task_params=None):
+        """
+        Collects all model names from the filtered manifest for a given resource type.
+        Returns a space-separated string suitable for dbt --select.
+        """
+        if task_params is None:
+            task_params = {}
+        task_params = {k: v for k, v in task_params.items() if v}
+
+        manifest = self.manifest_data
+        if "full_refresh_model_name" in task_params:
+            manifest = utils.filter_models(manifest, task_params["full_refresh_model_name"])
+
+        model_names = []
+        for node_id, node_data in manifest.items():
+            if node_data.get("resource_type") == resource_type:
+                model_names.append(node_data["name"])
+        return " ".join(model_names) if model_names else None
+
+    def create_dbt_batch_task(self, resource_type, dbt_command, running_rule, task_params=None):
+        """
+        Creates a single Airflow task that runs all models of the given resource_type
+        in one batch using dbt --select "model1 model2 model3 ...".
+        Bypasses per-model lineage — dbt handles internal dependency ordering.
+        """
+        select_string = self.get_model_names_for_resource_type(resource_type, task_params)
+        if not select_string:
+            return None
+
+        task_alias = f"{dbt_command}_all_models"
+        return self.create_dbt_kuberoperator_task(
+            dbt_command=dbt_command,
+            running_rule=running_rule,
+            task_params=task_params if task_params else {},
+            node_name=select_string,
+            node_alias=task_alias
+        )
+
     def create_dbt_task_groups(
             self,
             group_name,

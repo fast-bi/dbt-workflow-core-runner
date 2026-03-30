@@ -5,6 +5,19 @@ All notable changes to the Fast.BI DBT Runner package will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+
+## [2026.1.0.5] - 2026-03-30
+
+### Added
+- **Sharding: Complete fix for all DAG templates**
+  - seed non-sharded (DBT_SEED_SHARDING=False): now calls create_dbt_batch_task(resource_type="seed", ...) → produces dbt seed --select "seed1 seed2..." using tag-filtered manifest
+  - source freshness non-sharded (DBT_SOURCE_SHARDING=False): now calls create_dbt_batch_task(resource_type="source", ...) → produces dbt source freshness --select "source1 source2..."
+  - snapshot non-sharded (DBT_SNAPSHOT_SHARDING=False): now calls create_dbt_batch_task(resource_type="snapshot", ...) → produces dbt snapshot --select "snap1 snap2..."
+
+- **Model: Sharding off support for all DAG templates**
+  - Models are now sharded off when DBT_MODEL_SHARDING=False.
+  - All models are run in a single task when DBT_MODEL_SHARDING=False.
+
 ## [2026.1.0.4] - 2026-03-12
 
 ### Added
