@@ -6,17 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-## [2026.1.0.5] - 2026-03-30
+## [2026.1.0.6] - 2026-03-31
 
 ### Added
-- **Sharding: Complete fix for all DAG templates**
-  - seed non-sharded (DBT_SEED_SHARDING=False): now calls create_dbt_batch_task(resource_type="seed", ...) → produces dbt seed --select "seed1 seed2..." using tag-filtered manifest
-  - source freshness non-sharded (DBT_SOURCE_SHARDING=False): now calls create_dbt_batch_task(resource_type="source", ...) → produces dbt source freshness --select "source1 source2..."
-  - snapshot non-sharded (DBT_SNAPSHOT_SHARDING=False): now calls create_dbt_batch_task(resource_type="snapshot", ...) → produces dbt snapshot --select "snap1 snap2..."
+- **`DBT_MODEL` flag**: New Airflow variable `DBT_MODEL` (default: `True`). Enables or disables model execution entirely, consistent with the existing `DBT_SEED`, `DBT_SNAPSHOT`, and `DBT_SOURCE` flags. When set to `False`, the model section is skipped completely even if models are present in the manifest. Implemented across all four operator variants (bash, k8s, GKE, API).
 
-- **Model: Sharding off support for all DAG templates**
-  - Models are now sharded off when DBT_MODEL_SHARDING=False.
-  - All models are run in a single task when DBT_MODEL_SHARDING=False.
+### Changed
+- **Model execution check is now 3-level**: The model section now follows the same 3-level guard pattern used by seeds, snapshots, and sources: `is_resource_type_in_manifest("model")` → `DBT_MODEL == "true"` → `DBT_MODEL_SHARDING == "true"` (full lineage) or batch mode (`--select`). Previously the model section had only 2 levels (no `DBT_MODEL` gate).
+
+---
+
+## [2026.1.0.5] - 2026-03-31
+
+### Added
+- **`DBT_MODEL_SHARDING` flag**: New Airflow variable `DBT_MODEL_SHARDING` (default: `True`). When set to `False`, all tag-filtered models are run in a single Airflow task (`dbt run --select "model1 model2 ..."`) instead of one task per model with full dependency lineage. The model names are read from the already tag-filtered manifest, so `DBT_TAGS` filtering is fully respected. Implemented across all four operator variants (bash, k8s, GKE, API).
+- **Pytest test suite**: 73 unit tests covering manifest loading, caching, tag filtering, utils, and `create_dbt_batch_task` / `get_model_names_for_resource_type`. Uses `tests/fixtures/jaffle_shop_manifest.json` — no full dbt project required.
+- **CI test step**: `.github/workflows/test.yml` now runs `pytest tests/` as a required blocking step with JUnit XML artifact upload.
+
+### Fixed
+- **Tag filtering ignored in non-sharded mode for seeds, snapshots, and source freshness**: When `DBT_SEED_SHARDING`, `DBT_SNAPSHOT_SHARDING`, or `DBT_SOURCE_SHARDING` is set to `False` and `DBT_TAGS` is configured, the single-batch task previously called `dbt seed` / `dbt snapshot` / `dbt source freshness` with no `--select`, running all nodes regardless of tag filters. These now use `create_dbt_batch_task` which extracts tag-filtered node names from the manifest and passes them via `--select`. Fixed across all four operator variants (bash, k8s, GKE, API).
 
 ## [2026.1.0.4] - 2026-03-12
 

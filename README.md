@@ -8,263 +8,322 @@
 
 A comprehensive Python library for managing DBT (Data Build Tool) DAGs within the Fast.BI data development platform. This package provides multiple execution operators optimized for different cost-performance trade-offs, from low-cost slow execution to high-cost fast execution.
 
-## 🚀 Overview
+## Overview
 
 Fast.BI DBT Runner is part of the [Fast.BI Data Development Platform](https://fast.bi), designed to provide flexible and scalable DBT workload execution across various infrastructure options. The package offers four distinct operator types, each optimized for specific use cases and requirements.
 
-## 🎯 Key Features
+## Key Features
 
 - **Multiple Execution Operators**: Choose from K8S, Bash, API, or GKE operators
 - **Cost-Performance Optimization**: Scale from low-cost to high-performance execution
 - **Airflow Integration**: Seamless integration with Apache Airflow workflows
 - **Manifest Parsing**: Intelligent DBT manifest parsing for dynamic DAG generation
+- **Tag-based Filtering**: Filter which nodes run using `DBT_TAGS`
+- **Sharding Control**: Run models/seeds/snapshots/sources as individual tasks (lineage) or as a single batch task (`--select`)
+- **Manifest Caching**: Hash-based caching reduces DAG parse time by 99%+ for unchanged manifests
 - **Airbyte Integration**: Built-in support for Airbyte task group building
-- **Flexible Configuration**: Extensive configuration options for various deployment scenarios
 
-## 📦 Installation
+## Installation
 
-### Basic Installation (Core Package)
 ```bash
 pip install fast-bi-dbt-runner
-```
 
-### With Airflow Integration
-```bash
+# With Airflow
 pip install fast-bi-dbt-runner[airflow]
-```
 
-### With Development Tools
-```bash
+# With development tools
 pip install fast-bi-dbt-runner[dev]
 ```
 
-### With Documentation Tools
-```bash
-pip install fast-bi-dbt-runner[docs]
-```
+## Operator Types
 
-### Complete Installation
-```bash
-pip install fast-bi-dbt-runner[airflow,dev,docs]
-```
+| Operator | Best For | Cost | Speed |
+|----------|----------|------|-------|
+| `k8s` | Cost optimization, daily jobs, high concurrency | Lowest | Slowest |
+| `bash` | Balanced cost/speed, medium projects | Medium | Medium |
+| `api` | High performance, time-sensitive workflows | Highest | Fastest |
+| `gke` | Full isolation, external client workloads | High | Medium |
 
-## 🏗️ Architecture
+## Airflow Variable Reference
 
-### Operator Types
+All variables are read from Airflow Variables at DAG load time. Defaults shown in parentheses.
 
-The package provides four different operators for running DBT transformation pipelines:
+### Infrastructure & Identity
 
-#### 1. K8S (Kubernetes) Operator - Default Choice
-- **Best for**: Cost optimization, daily/nightly jobs, high concurrency
-- **Characteristics**: Creates dedicated Kubernetes pods per task
-- **Trade-offs**: Most cost-effective but slower execution speed
-- **Use cases**: Daily ETL pipelines, projects with less frequent runs
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PROJECT_ID` | required | Google Cloud project identifier |
+| `DBT_PROJECT_NAME` | required | DBT project name (used as DAG ID prefix) |
+| `NAMESPACE` | — | Kubernetes namespace (k8s/GKE operators) |
+| `DAG_OWNER` | `fast.bi` | Airflow DAG owner |
+| `DAG_START_DATE` | `days_ago(1)` | DAG start date expression |
+| `DAG_SCHEDULE_INTERVAL` | `@once` | Cron expression or preset (`@daily`, `@hourly`, etc.) |
+| `GIT_BRANCH` | — | Git branch to checkout on worker before running dbt |
 
-#### 2. Bash Operator
-- **Best for**: Balanced cost-speed ratio, medium-sized projects
-- **Characteristics**: Runs within Airflow worker resources
-- **Trade-offs**: Faster than K8S but limited by worker capacity
-- **Use cases**: Medium-sized projects, workflows requiring faster execution
+### Model Execution Control
 
-#### 3. API Operator
-- **Best for**: High performance, time-sensitive workflows
-- **Characteristics**: Dedicated machine per project, always-on resources
-- **Trade-offs**: Fastest execution but highest cost
-- **Use cases**: Large-scale projects, real-time analytics, high-frequency execution
+These three flags follow the same pattern: `is_in_manifest` → `DBT_X` → `DBT_X_SHARDING`.
 
-#### 4. GKE Operator
-- **Best for**: Complete isolation, external client workloads
-- **Characteristics**: Creates dedicated GKE clusters
-- **Trade-offs**: Full isolation but higher operational complexity
-- **Use cases**: External client workloads, isolated environment requirements
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DBT_MODEL` | `True` | Enable/disable model (`dbt run`) execution entirely |
+| `DBT_MODEL_SHARDING` | `True` | `True` = one Airflow task per model with full dependency lineage; `False` = single batch task running `dbt run --select "model1 model2 ..."` |
 
-## 🚀 Quick Start
+### Seed Execution Control
 
-### Basic Usage
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DBT_SEED` | `False` | Enable/disable seed (`dbt seed`) execution |
+| `DBT_SEED_SHARDING` | `True` | `True` = one task per seed file; `False` = single batch task with `--select` |
 
-```python
-from fast_bi_dbt_runner import DbtManifestParserK8sOperator
+### Snapshot Execution Control
 
-# Create a K8S operator instance
-operator = DbtManifestParserK8SOperator(
-    task_id='run_dbt_models',
-    project_id='my-gcp-project',
-    dbt_project_name='my_analytics',
-    operator='k8s'
-)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DBT_SNAPSHOT` | `False` | Enable/disable snapshot (`dbt snapshot`) execution |
+| `DBT_SNAPSHOT_SHARDING` | `True` | `True` = one task per snapshot; `False` = single batch task with `--select` |
 
-# Execute DBT models
-operator.execute(context)
-```
+### Source Freshness Control
 
-### Configuration Example
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DBT_SOURCE` | `True` | Enable/disable source freshness (`dbt source freshness`) checks |
+| `DBT_SOURCE_SHARDING` | `True` | `True` = one task per source; `False` = single batch task with `--select` |
 
-```python
-# K8S Operator Configuration
-k8s_config = {
-    'PLATFORM': 'Airflow',
-    'OPERATOR': 'k8s',
-    'PROJECT_ID': 'my-gcp-project',
-    'DBT_PROJECT_NAME': 'my_analytics',
-    'DAG_SCHEDULE_INTERVAL': '@daily',
-    'DATA_QUALITY': 'True',
-    'DBT_SOURCE': 'True'
-}
+### Pipeline Steps
 
-# API Operator Configuration
-api_config = {
-    'PLATFORM': 'Airflow',
-    'OPERATOR': 'api',
-    'PROJECT_ID': 'my-gcp-project',
-    'DBT_PROJECT_NAME': 'realtime_analytics',
-    'DAG_SCHEDULE_INTERVAL': '*/15 * * * *',
-    'MODEL_DEBUG_LOG': 'True'
-}
-```
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DBT_DEPS` | `True` | Run `dbt deps` at DAG start to install packages. Set `False` when packages are vendored in the repo |
+| `DATA_QUALITY` | `False` | Enable re_data / data quality task at end of DAG |
+| `DEBUG` | `False` | Run `dbt debug` at DAG start to verify connection |
 
-## 📚 Documentation
+### Filtering & Selection
 
-For detailed documentation, visit our [Fast.BI Platform Documentation](https://wiki.fast.bi/en/User-Guide/Data-Orchestration/Data-Model-CICD-Configuration).
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DBT_TAGS` | — | Comma-separated list of dbt tags. Only nodes tagged with **all** listed tags are included. Example: `tag1,tag2` |
 
-### Key Documentation Sections
+### Full Refresh
 
-- [Operator Selection Guide](https://wiki.fast.bi/en/User-Guide/Data-Orchestration/Data-Model-CICD-Configuration#operator-selection-guide)
-- [Configuration Variables](https://wiki.fast.bi/en/User-Guide/Data-Orchestration/Data-Model-CICD-Configuration#core-variables)
-- [Advanced Configuration Examples](https://wiki.fast.bi/en/User-Guide/Data-Orchestration/Data-Model-CICD-Configuration#advanced-configuration-examples)
-- [Best Practices](https://wiki.fast.bi/en/User-Guide/Data-Orchestration/Data-Model-CICD-Configuration#notes-and-best-practices)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `FULL_REFRESH` | `False` | Run models with `dbt run --full-refresh` (rebuilds incrementals from scratch) |
+| `FULL_REFRESH_MODEL_NAME` | — | Comma-separated list of specific model names to full-refresh (others run normally) |
 
-## 🔧 Configuration
+### E2E / Testing Modes
 
-### Core Variables
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `E2E_MODE_EMPTY` | `False` | Append `--empty` to `dbt run` (creates empty tables without processing data, for E2E schema validation) |
 
-| Variable | Description | Default Value |
-|----------|-------------|---------------|
-| `PLATFORM` | Data orchestration platform | Airflow |
-| `OPERATOR` | Execution operator type | k8s |
-| `PROJECT_ID` | Google Cloud project identifier | Required |
-| `DBT_PROJECT_NAME` | DBT project identifier | Required |
-| `DAG_SCHEDULE_INTERVAL` | Pipeline execution schedule | @once |
+### Monitoring & Logging
 
-### Feature Flags
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MODEL_DEBUG_LOG` | `False` | Log compiled SQL for failed model tasks (appends compiled code to Airflow task logs) |
+| `DATAHUB_ENABLED` | `False` | Enable DataHub metadata push after DAG run |
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `DBT_SEED` | Enable seed data loading | False |
-| `DBT_SOURCE` | Enable source loading | False |
-| `DBT_SNAPSHOT` | Enable snapshot creation | False |
-| `DATA_QUALITY` | Enable quality service | False |
-| `DEBUG` | Enable connection verification | False |
+### Manifest Cache (Environment Variables)
 
-## 🎯 Use Cases
+These are set as environment variables on the Airflow workers, not as Airflow Variables:
 
-### Daily ETL Pipeline
-```python
-# Low-cost, reliable daily processing
-config = {
-    'OPERATOR': 'k8s',
-    'DAG_SCHEDULE_INTERVAL': '@daily',
-    'DBT_SOURCE': 'True',
-    'DATA_QUALITY': 'True'
-}
-```
-
-### Real-time Analytics
-```python
-# High-performance, frequent execution
-config = {
-    'OPERATOR': 'api',
-    'DAG_SCHEDULE_INTERVAL': '*/15 * * * *',
-    'MODEL_DEBUG_LOG': 'True'
-}
-```
-
-### External Client Workload
-```python
-# Isolated, dedicated resources
-config = {
-    'OPERATOR': 'gke',
-    'CLUSTER_NAME': 'client-isolated-cluster',
-    'DATA_QUALITY': 'True'
-}
-```
-
-## 🔍 Monitoring and Debugging
-
-### Enable Debug Logging
-```python
-config = {
-    'DEBUG': 'True',
-    'MODEL_DEBUG_LOG': 'True'
-}
-```
-
-### Data Quality Integration
-```python
-config = {
-    'DATA_QUALITY': 'True',
-    'DATAHUB_ENABLED': 'True'
-}
-```
-
-## 🚀 CI/CD and Automation
-
-This package uses GitHub Actions for continuous integration and deployment:
-
-- **Automated Testing**: Tests across Python 3.9-3.12
-- **Code Quality**: Linting, formatting, and type checking
-- **Automated Publishing**: Automatic PyPI releases on version tags
-- **Documentation**: Automated documentation building and deployment
-
-### Release Process
-
-1. Create a version tag: `git tag v1.0.0`
-2. Push the tag: `git push origin v1.0.0`
-3. GitHub Actions automatically:
-   - Tests the package
-   - Builds and validates
-   - Publishes to PyPI
-   - Creates a GitHub release
-
-## 🤝 Contributing
-
-We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
-
-### Development Setup
-
-```bash
-# Clone the repository
-git clone https://github.com/fast-bi/dbt-workflow-core-runner.git
-cd dbt-workflow-core-runner
-
-# Install in development mode with all tools
-pip install -e .[dev,airflow]
-
-# Run tests
-pytest
-
-# Check code quality
-flake8 fast_bi_dbt_runner/
-black --check fast_bi_dbt_runner/
-mypy fast_bi_dbt_runner/
-```
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🆘 Support
-
-- **Documentation**: [Fast.BI Platform Wiki](https://wiki.fast.bi)
-- **Email**: support@fast.bi
-- **Issues**: [GitHub Issues](https://github.com/fast-bi/dbt-workflow-core-runner/issues)
-- **Source**: [GitHub Repository](https://github.com/fast-bi/dbt-workflow-core-runner)
-
-## 🔗 Related Projects
-
-- [Fast.BI Platform](https://fast.bi) - Complete data development platform
-- [Fast.BI Replication Control](https://pypi.org/project/fast-bi-replication-control/) - Data replication management
-- [Apache Airflow](https://airflow.apache.org/) - Workflow orchestration platform
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AIRFLOW__CORE__MANIFEST_CACHE_ENABLED` | `True` | Enable manifest caching (reduces DAG parse time by 99%+ for unchanged manifests) |
+| `AIRFLOW__CORE__MANIFEST_CACHE_DEBUG` | `False` | Log cache hit/miss details |
+| `AIRFLOW__CORE__MANIFEST_CACHE_MAX_SIZE` | `50` | Maximum number of manifests to keep in the module-level cache |
 
 ---
 
-**Fast.BI DBT Runner** - Empowering data teams with flexible, scalable DBT execution across the Fast.BI platform.
+## Sharding Explained
+
+### Sharding = True (default) — Full Lineage
+
+Each model/seed/snapshot/source becomes its own Airflow task. Airflow builds the full dependency graph from the dbt manifest, so tasks execute in dependency order and you can retry individual failed nodes.
+
+```
+seed_customers → model_stg_customers → model_orders → model_revenue
+                                     ↗
+                model_stg_orders ───
+```
+
+**Use when**: You need visibility into individual model failures, want to retry a single model, or have long-running models that benefit from parallelism.
+
+### Sharding = False — Batch Mode
+
+All tag-filtered models are collected from the manifest and passed in a single `dbt run --select "model1 model2 ..."` command, running as one Airflow task. Tag filtering (`DBT_TAGS`) is fully respected — only manifested, tag-matching nodes are included.
+
+```
+single_task: dbt run --select "stg_customers stg_orders dim_revenue"
+```
+
+**Use when**: You have many small models, want simpler DAGs with fewer tasks, or Airflow overhead per-task is significant.
+
+---
+
+## Configuration Examples
+
+### Standard Daily Pipeline (K8S)
+
+```python
+# Airflow Variables
+{
+    "PROJECT_ID": "my-gcp-project",
+    "DBT_PROJECT_NAME": "analytics",
+    "DAG_SCHEDULE_INTERVAL": "@daily",
+    "DBT_DEPS": "True",
+    "DBT_SOURCE": "True",
+    "DBT_SOURCE_SHARDING": "True",
+    "DBT_SEED": "False",
+    "DBT_MODEL": "True",
+    "DBT_MODEL_SHARDING": "True",
+    "DBT_SNAPSHOT": "False",
+    "DATA_QUALITY": "True"
+}
+```
+
+### Batch Mode (Many Small Models, Low Overhead)
+
+```python
+# All resource types run as single batch tasks — fewer Airflow tasks, simpler DAG
+{
+    "DBT_MODEL": "True",
+    "DBT_MODEL_SHARDING": "False",   # dbt run --select "model1 model2 ..."
+    "DBT_SEED": "True",
+    "DBT_SEED_SHARDING": "False",    # dbt seed --select "seed1 seed2 ..."
+    "DBT_SOURCE": "True",
+    "DBT_SOURCE_SHARDING": "False",  # dbt source freshness --select "src1 src2 ..."
+    "DBT_SNAPSHOT": "True",
+    "DBT_SNAPSHOT_SHARDING": "False" # dbt snapshot --select "snap1 snap2 ..."
+}
+```
+
+### Tag-Filtered Pipeline
+
+```python
+# Only run nodes tagged with both "marketing" and "daily"
+{
+    "DBT_TAGS": "marketing,daily",
+    "DBT_MODEL": "True",
+    "DBT_MODEL_SHARDING": "True"
+}
+```
+
+### Full Refresh Specific Models
+
+```python
+# Full refresh only two models; others run normally
+{
+    "FULL_REFRESH": "False",
+    "FULL_REFRESH_MODEL_NAME": "dim_customers,fct_orders"
+}
+```
+
+### Full Refresh All Models
+
+```python
+{
+    "FULL_REFRESH": "True"
+}
+```
+
+### E2E Schema Validation
+
+```python
+# Creates empty tables (no data) to validate schema changes end-to-end
+{
+    "E2E_MODE_EMPTY": "True",
+    "DBT_MODEL": "True",
+    "DBT_MODEL_SHARDING": "False"
+}
+```
+
+### Skip Package Installation (Vendored Packages)
+
+```python
+# Packages are committed to the repo — skip dbt deps for faster, more reliable runs
+{
+    "DBT_DEPS": "False"
+}
+```
+
+### High-Performance Real-Time Pipeline (API Operator)
+
+```python
+{
+    "PROJECT_ID": "my-gcp-project",
+    "DBT_PROJECT_NAME": "realtime_analytics",
+    "DAG_SCHEDULE_INTERVAL": "*/15 * * * *",
+    "DBT_DEPS": "False",
+    "DBT_MODEL": "True",
+    "DBT_MODEL_SHARDING": "False",  # batch mode for speed
+    "DBT_TAGS": "realtime",
+    "MODEL_DEBUG_LOG": "True"
+}
+```
+
+---
+
+## Architecture
+
+### Execution Flow per DAG
+
+```
+[Airbyte sync] (optional)
+     ↓
+[dbt deps]     (if DBT_DEPS=True)
+     ↓
+[dbt debug]    (if DEBUG=True)
+     ↓
+[show_input_data]
+     ↓
+[dbt source freshness]  (if DBT_SOURCE=True)
+     ↓
+[dbt seed]              (if DBT_SEED=True)
+     ↓
+[dbt run]               (if DBT_MODEL=True)
+     ↓
+[dbt snapshot]          (if DBT_SNAPSHOT=True)
+     ↓
+[re_data / quality]     (if DATA_QUALITY=True)
+```
+
+### Manifest Caching
+
+The manifest caching system reduces DAG import time by 99%+ for unchanged manifests:
+
+- **Before caching**: ~2–4 seconds per manifest parse, ~480 parses/hour with 2 schedulers
+- **After caching**: <10ms for cache hits, only 5–10 cache misses/hour (on actual manifest changes)
+- Cache keys include: file MD5 hash + `DBT_TAGS` + ancestor/descendant flags
+- Cache is process-local (not shared across pod restarts); first parse after restart is always a cache miss
+
+---
+
+## CI/CD
+
+Tests run automatically on every push:
+
+```bash
+# Run tests locally
+pytest tests/
+
+# With coverage
+pytest tests/ --cov=fast_bi_dbt_runner --cov-report=term-missing
+```
+
+### Release Process
+
+1. Bump version in `pyproject.toml`
+2. Add entry to `CHANGELOG.md`
+3. Create and push a version tag: `git tag 2026.1.0.6 && git push origin 2026.1.0.6`
+4. GitHub Actions tests, builds, and publishes to PyPI automatically
+
+---
+
+## Support
+
+- **Documentation**: [Fast.BI Platform Wiki](https://wiki.fast.bi/en/User-Guide/Data-Orchestration/Data-Model-CICD-Configuration)
+- **Email**: support@fast.bi
+- **Issues**: [GitHub Issues](https://github.com/fast-bi/dbt-workflow-core-runner/issues)
+- **Changelog**: [CHANGELOG.md](CHANGELOG.md)
