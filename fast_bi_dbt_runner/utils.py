@@ -1,28 +1,33 @@
 import re
 import json
 import datetime
-from airflow.utils.dates import days_ago
+import pendulum
 
 
 def get_valid_start_date(start_date_raw):
     """
-        Tries to parse the START_DATE from Airflow Variables.
-        Supports:
-        - days_ago() function
-        - ISO format (YYYY-MM-DDTHH:MM:SS)
+    Supports:
+    - days_ago(N)
+    - ISO format (YYYY-MM-DDTHH:MM:SS)
     """
     # Check if start_date_raw follows days_ago(N) pattern
     if re.fullmatch(r"days_ago\(\d+\)", start_date_raw):
-        days_value = int(start_date_raw[9:-1])  # Extract the number from days_ago(N)
-        return days_ago(days_value)
-
+        days_value = int(start_date_raw[9:-1]) # Extract the number from days_ago(N)
+        return pendulum.now("UTC").subtract(days=days_value)
     # Check if start_date_raw follows the correct ISO format
     try:
-        return datetime.datetime.fromisoformat(start_date_raw)  # Parse as ISO datetime
-    except ValueError:
-        raise ValueError(
-            f"Invalid start_date format: {start_date_raw}. Must be ISO format (YYYY-MM-DDTHH:MM:SS) or 'days_ago(N)'.")
+        dt = pendulum.parse(start_date_raw)
 
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=pendulum.timezone("UTC"))
+
+        return dt
+
+    except Exception:
+        raise ValueError(
+            f"Invalid start_date format: {start_date_raw}. "
+            f"Use ISO format (YYYY-MM-DDTHH:MM:SS) or 'days_ago(N)'."
+        )
 
 # CHANGE INPUT PARAM EVERYWHERE
 def is_resource_type_in_manifest(manifest_data, resource_type):
