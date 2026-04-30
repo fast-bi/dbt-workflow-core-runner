@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2026.1.1.0] - 2026-04-30
+
+### Added
+- **Watcher execution mode** (`DBT_MODEL_WATCHER=true`): New high-performance execution mode for the bash operator that eliminates per-model process spawning overhead. Instead of launching one dbt subprocess per model (60-100 processes for large DAGs), a single `DbtWatcherProducerOperator` runs `dbt <command> --log-format json --select <all_models>` as one process and publishes per-node status to XCom in real time. One `DbtWatcherConsumerSensor` per model polls XCom for its result — sensors are deferrable and hold no worker slot while waiting. Result: DAG execution time drops from 20-30 minutes to ~2 minutes (equivalent to `dbt build` batch time).
+  - New module `fast_bi_dbt_runner/watcher/` with `producer.py`, `consumer.py`, `trigger.py`, `xcom_state.py`, `airflow_compat.py`
+  - **XCom backup/restore**: each node status is incrementally backed up to an Airflow Variable (`fastbi_watcher_xcom_{dag_id}_{run_id}`), surviving pod restarts. On producer retry the backup is restored so consumers resume without re-running dbt.
+  - **Consumer fallback**: if the producer fails before publishing a node's status, the sensor falls back to running `dbt <command> --select <model>` directly as a single-model recovery step.
+  - **Deferrable sensors**: uses `BaseTrigger` / `WatcherTrigger` when the Airflow version supports it (2.2+), falling back to synchronous polling otherwise.
+  - Airflow 2.x / 3.x compatible — dual code paths for XCom reads and task state queries.
+  - Activated per-project by adding `"DBT_MODEL_WATCHER": "true"` to `AIRFLOW_VARS_SECRETS`. Requires `DBT_MODEL_SHARDING=true`. No DAG template changes needed.
+
+### Changed
+- `create_dbt_task_groups()` in the bash operator parser now routes to watcher mode when `DBT_MODEL_WATCHER=true`, taking priority over the existing sharded (per-model) path.
+
+---
+
 ## [2026.1.0.6] - 2026-03-31
 
 ### Added
