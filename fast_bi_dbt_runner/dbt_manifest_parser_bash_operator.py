@@ -300,7 +300,7 @@ class DbtManifestParser:
             producer >> producer_done
 
             for node_id, node_data in self.manifest_data.items():
-                if resource_type == "source" and node_data.get("resource_type") == "test":
+                if resource_type in ("source", "model") and node_data.get("resource_type") == "test":
                     continue
                 if group_name[:-1] not in node_data["group_type"]:
                     continue
