@@ -7,9 +7,9 @@ import uuid
 from datetime import datetime
 from airflow.utils.dates import days_ago
 from kubernetes.client import models as k8s
-from airflow.hooks.base import BaseHook
+from airflow.sdk.bases.hook import BaseHook
 from airflow.utils.task_group import TaskGroup
-from airflow.operators.python_operator import PythonOperator
+from airflow.operators.python import PythonOperator
 from itertools import chain
 from time import sleep
 from airflow.exceptions import AirflowFailException

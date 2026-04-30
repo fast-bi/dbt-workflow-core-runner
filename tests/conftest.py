@@ -15,14 +15,15 @@ for mod_name in [
     "airflow.exceptions",
     "airflow.hooks",
     "airflow.hooks.base",
+    "airflow.sdk",
+    "airflow.sdk.bases",
+    "airflow.sdk.bases.hook",
     "airflow.models",
     "airflow.operators",
     "airflow.operators.empty",
     "airflow.operators.python",
-    "airflow.operators.python_operator",
     "airflow.utils",
     "airflow.utils.dates",
-    "airflow.utils.decorators",
     "airflow.utils.task_group",
     "airflow.providers",
     "airflow.providers.cncf",
@@ -33,6 +34,10 @@ for mod_name in [
     "airflow.providers.google.cloud",
     "airflow.providers.google.cloud.operators",
     "airflow.providers.google.cloud.operators.kubernetes_engine",
+    "airflow.sensors",
+    "airflow.sensors.base",
+    "airflow.triggers",
+    "airflow.triggers.base",
 ]:
     sys.modules.setdefault(mod_name, _airflow_mock)
 

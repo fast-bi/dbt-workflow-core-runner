@@ -2,6 +2,7 @@ import logging
 import fast_bi_dbt_runner.utils as utils
 from fast_bi_dbt_runner.cached_manifest_loader import load_dbt_manifest_cached
 from airflow.utils.task_group import TaskGroup
+from airflow.operators.empty import EmptyOperator
 from fast_bi_dbt_runner.bash_operator.dbt_operator import (
     DbtSeedOperator,
     DbtSnapshotOperator,
@@ -12,6 +13,9 @@ from fast_bi_dbt_runner.bash_operator.dbt_operator import (
     DbtReDataOperator,
     DbtDebugOperator
 )
+from fast_bi_dbt_runner.watcher.producer import DbtWatcherProducerOperator
+from fast_bi_dbt_runner.watcher.consumer import DbtWatcherConsumerSensor
+from fast_bi_dbt_runner.watcher.xcom_state import PRODUCER_DONE_TASK_ID
 
 class DbtManifestParser:
     """
@@ -248,6 +252,88 @@ class DbtManifestParser:
             node_alias=task_alias
         )
 
+    def create_dbt_watcher_tasks(self, group_name, resource_type, dbt_command, running_rule, task_params=None):
+        """
+        Creates a watcher-mode task group: one producer task runs all models in a single dbt process,
+        one consumer sensor per model polls XCom for its result. Producer-Consumer pattern with
+        deferrable sensors eliminates per-model process spawning overhead.
+        """
+        if task_params is None:
+            task_params = {}
+        task_params = {k: v for k, v in task_params.items() if v}
+
+        if "full_refresh_model_name" in task_params:
+            self.manifest_data = utils.filter_models(self.manifest_data, task_params["full_refresh_model_name"])
+
+        if not utils.is_resource_type_in_manifest(self.manifest_data, resource_type):
+            return None
+
+        target = self.airflow_vars.get("TARGET")
+        git_branch = self.airflow_vars.get("GIT_BRANCH")
+        warehouse_type = self.airflow_vars.get("DATA_WAREHOUSE_PLATFORM")
+        full_refresh = bool(task_params.get("full_refresh_model_name"))
+        empty = bool(self.airflow_vars.get("E2E_MODE_EMPTY"))
+
+        select_string = self.get_model_names_for_resource_type(resource_type, task_params)
+        if not select_string:
+            return None
+
+        with TaskGroup(group_id=group_name, parent_group=None) as root_group:
+            producer = DbtWatcherProducerOperator(
+                select_string=select_string,
+                dbt_command=dbt_command,
+                dbt_project_dir=self.dbt_project_dir,
+                target=target,
+                git_branch=git_branch,
+                warehouse_type=warehouse_type,
+                full_refresh=full_refresh,
+                empty=empty,
+                debug=self.debug,
+                task_group=root_group,
+            )
+
+            producer_done = EmptyOperator(
+                task_id=PRODUCER_DONE_TASK_ID,
+                task_group=root_group,
+                trigger_rule=running_rule,
+            )
+            producer >> producer_done
+
+            for node_id, node_data in self.manifest_data.items():
+                if resource_type == "source" and node_data.get("resource_type") == "test":
+                    continue
+                if group_name[:-1] not in node_data["group_type"]:
+                    continue
+
+                node_name = node_data["name"]
+                node_alias = node_data["alias"]
+                node_dbt_command = dbt_command
+
+                if node_data["resource_type"] == "test":
+                    node_dbt_command = "test"
+                elif node_data["resource_type"] == "source":
+                    node_name = f"source:{node_data['schema']}.{node_name}"
+                    node_dbt_command = "source freshness"
+
+                sensor = DbtWatcherConsumerSensor(
+                    task_id=node_alias,
+                    node_unique_id=node_id,
+                    node_name=node_name,
+                    dbt_command=node_dbt_command,
+                    dbt_project_dir=self.dbt_project_dir,
+                    target=target,
+                    git_branch=git_branch,
+                    warehouse_type=warehouse_type,
+                    full_refresh=full_refresh,
+                    debug=self.debug,
+                    task_group=root_group,
+                )
+                producer_done >> sensor
+                self.dbt_tasks[node_id] = sensor
+
+        self.set_dependencies(resource_type)
+        return root_group
+
     def create_dbt_task_groups(
             self,
             group_name,
@@ -268,6 +354,11 @@ class DbtManifestParser:
         Returns: task group
         """
         task_params = {k: v for k, v in task_params.items() if v}  # Filter out empty values
+
+        watcher_enabled = str(self.airflow_vars.get("DBT_MODEL_WATCHER", "false")).lower() == "true"
+        if watcher_enabled:
+            return self.create_dbt_watcher_tasks(group_name, resource_type, dbt_command, running_rule, task_params)
+
         if "full_refresh_model_name" in task_params:
             self.manifest_data = utils.filter_models(self.manifest_data, task_params["full_refresh_model_name"])
 
