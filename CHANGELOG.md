@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2026.1.1.1] - 2026-04-30
+
+### Fixed
+- **Watcher mode: test nodes incorrectly included in model sensor group** — test nodes have `"model"` in their `group_type` (because they depend on models), causing them to appear as consumer sensors inside the `models` watcher task group, roughly doubling visible task count. Extended the existing source-group guard to also exclude tests when `resource_type="model"`. Tests are handled correctly when the tests task group is built separately.
+
+---
+
 ## [2026.1.1.0] - 2026-04-30
 
 ### Added
