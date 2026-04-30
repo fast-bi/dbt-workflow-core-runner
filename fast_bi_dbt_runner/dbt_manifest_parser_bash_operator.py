@@ -306,8 +306,10 @@ class DbtManifestParser:
                     continue
 
                 node_name = node_data["name"]
-                node_alias = node_data["alias"]
                 node_dbt_command = dbt_command
+                # Use FQN path (minus project root) joined with "__" to guarantee
+                # uniqueness when multiple nodes share the same alias across schemas.
+                task_id = "__".join(node_data["fqn"][1:])
 
                 if node_data["resource_type"] == "test":
                     node_dbt_command = "test"
@@ -316,7 +318,7 @@ class DbtManifestParser:
                     node_dbt_command = "source freshness"
 
                 sensor = DbtWatcherConsumerSensor(
-                    task_id=node_alias,
+                    task_id=task_id,
                     node_unique_id=node_id,
                     node_name=node_name,
                     dbt_command=node_dbt_command,
