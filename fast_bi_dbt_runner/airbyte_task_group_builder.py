@@ -8,6 +8,10 @@ from airflow.operators.empty import EmptyOperator
 from airflow.operators.python import BranchPythonOperator
 from airflow.operators.python import PythonOperator
 from airflow.utils.task_group import TaskGroup
+try:
+    from airflow.operators.python import PythonOperator
+except ImportError:
+    from airflow.operators.python_operator import PythonOperator
 
 
 def get_con_info(conn, api, ti=None):
