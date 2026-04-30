@@ -34,6 +34,10 @@ for mod_name in [
     "airflow.providers.google.cloud",
     "airflow.providers.google.cloud.operators",
     "airflow.providers.google.cloud.operators.kubernetes_engine",
+    "airflow.sensors",
+    "airflow.sensors.base",
+    "airflow.triggers",
+    "airflow.triggers.base",
 ]:
     sys.modules.setdefault(mod_name, _airflow_mock)
 
