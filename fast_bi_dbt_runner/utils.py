@@ -100,6 +100,51 @@ def change_to_test_in_models_depends_on(nodes_list):
     return nodes_list
 
 
+def weave_snapshots_into_model_group(nodes_list):
+    """
+    Re-group snapshots (and their tests) that a selected model depends on so they
+    run interleaved inside the 'model' task group instead of the separate snapshot
+    phase.
+
+    This mirrors how tests are already interleaved: grouping is driven by
+    ``group_type`` rather than ``resource_type``. A snapshot is considered
+    "model-blocking" when some selected model has the snapshot's node id in its
+    raw ``depends_on``. For each such snapshot we add ``"model"`` to its
+    ``group_type`` (and drop ``"snapshot"`` so it is not also built in the
+    snapshot phase). Tests that test those snapshots are moved too, so the
+    ``snapshot -> its tests -> downstream model`` ordering is preserved (matching
+    ``dbt build`` semantics).
+
+    NOTE: must run on the raw ``depends_on`` (before
+    ``change_to_test_in_models_depends_on`` rewrites model deps to point at tests),
+    otherwise a snapshot that has tests would no longer be visible as a direct
+    model dependency.
+    """
+    snapshot_ids = {k for k, v in nodes_list.items() if v["resource_type"] == "snapshot"}
+    if not snapshot_ids:
+        return nodes_list
+
+    blocking = set()
+    for v in nodes_list.values():
+        if v["resource_type"] == "model":
+            blocking.update(dep for dep in v["depends_on"] if dep in snapshot_ids)
+    if not blocking:
+        return nodes_list
+
+    test_ids = {
+        k for k, v in nodes_list.items()
+        if v["resource_type"] == "test" and any(dep in blocking for dep in v["depends_on"])
+    }
+
+    for nid in blocking | test_ids:
+        group_type = nodes_list[nid]["group_type"]
+        if "model" not in group_type:
+            group_type.append("model")
+        if "snapshot" in group_type:
+            group_type.remove("snapshot")
+    return nodes_list
+
+
 def get_file_tests(nodes_list):
     for k, v in nodes_list.items():
         if v["resource_type"] == 'test':
@@ -272,7 +317,8 @@ def change_macros_dependencies_to_source_dependencies(current_node, source_dict)
 def load_dbt_manifest(manifest_path,
                       dbt_tag=[],
                       dbt_tag_ancestors=False,
-                      dbt_tag_descendants=False):
+                      dbt_tag_descendants=False,
+                      dbt_model_depends_on_snapshot=False):
     """
     Helper function to load the dbt manifest file.
     Returns: A JSON object containing the dbt manifest content.
@@ -344,6 +390,8 @@ def load_dbt_manifest(manifest_path,
 
         node_without_ephemeral = remove_ephemeral_dependencies(node_dependency_unique_filtered)
         node_with_get_file = get_file_tests(node_without_ephemeral)
+        if to_bool(dbt_model_depends_on_snapshot):
+            node_with_get_file = weave_snapshots_into_model_group(node_with_get_file)
         result = change_to_test_in_models_depends_on(node_with_get_file)
 
     return result

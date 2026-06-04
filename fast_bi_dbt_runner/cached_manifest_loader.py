@@ -7,6 +7,7 @@ and persists across DAG imports within the same Python process.
 
 Performance: ~99% cache hit rate in production, reducing DAG import time from 2-4s to <10ms.
 """
+import copy
 import hashlib
 import logging
 import os
@@ -54,12 +55,28 @@ def _get_file_hash(manifest_path: str) -> str:
         return f"error_{id(e)}"
 
 
+def _norm_bool(value: Any) -> bool:
+    """
+    Normalize a flag to a canonical bool for cache-key construction.
+
+    Airflow variables may arrive as real bools or as strings ("True"/"false"/...).
+    Normalizing here guarantees that semantically-equal values (e.g. True and
+    "true") collapse to a single cache entry instead of creating duplicates or,
+    worse, reusing an entry built under a different semantic value.
+    """
+    try:
+        return utils.to_bool(value)
+    except Exception:
+        return bool(value)
+
+
 def _create_cache_key(
     manifest_path: str,
     file_hash: str,
     dbt_tag: List[str],
     dbt_tag_ancestors: bool,
-    dbt_tag_descendants: bool
+    dbt_tag_descendants: bool,
+    dbt_model_depends_on_snapshot: bool = False
 ) -> Tuple:
     """
     Create a cache key from manifest parameters.
@@ -68,6 +85,7 @@ def _create_cache_key(
     - File hash (changes only when file content changes)
     - DBT tags (different tags = different filtered results)
     - Ancestor/descendant flags (affects dependency resolution)
+    - Model-depends-on-snapshot flag (changes node grouping)
     
     Args:
         manifest_path: Path to manifest file (for logging)
@@ -75,6 +93,7 @@ def _create_cache_key(
         dbt_tag: List of DBT tags to filter
         dbt_tag_ancestors: Include ancestors of tagged models
         dbt_tag_descendants: Include descendants of tagged models
+        dbt_model_depends_on_snapshot: Weave snapshots into the model group
         
     Returns:
         Tuple suitable for use as dict key
@@ -85,8 +104,9 @@ def _create_cache_key(
     return (
         file_hash,
         tags_key,
-        dbt_tag_ancestors,
-        dbt_tag_descendants
+        _norm_bool(dbt_tag_ancestors),
+        _norm_bool(dbt_tag_descendants),
+        _norm_bool(dbt_model_depends_on_snapshot)
     )
 
 
@@ -113,7 +133,8 @@ def load_dbt_manifest_cached(
     manifest_path: str,
     dbt_tag: Optional[List[str]] = None,
     dbt_tag_ancestors: bool = False,
-    dbt_tag_descendants: bool = False
+    dbt_tag_descendants: bool = False,
+    dbt_model_depends_on_snapshot: bool = False
 ) -> Dict[str, Any]:
     """
     Load and parse dbt manifest with caching.
@@ -127,9 +148,11 @@ def load_dbt_manifest_cached(
         dbt_tag: List of DBT tags to filter (default: [])
         dbt_tag_ancestors: Include ancestors of tagged models (default: False)
         dbt_tag_descendants: Include descendants of tagged models (default: False)
+        dbt_model_depends_on_snapshot: Weave snapshots into the model group (default: False)
         
     Returns:
-        Parsed manifest data dictionary
+        Parsed manifest data dictionary. A deep copy is returned so callers may
+        freely mutate the result without corrupting the shared cached object.
         
     Performance:
         - Cache hit: <10ms
@@ -146,7 +169,8 @@ def load_dbt_manifest_cached(
             manifest_path,
             dbt_tag=dbt_tag,
             dbt_tag_ancestors=dbt_tag_ancestors,
-            dbt_tag_descendants=dbt_tag_descendants
+            dbt_tag_descendants=dbt_tag_descendants,
+            dbt_model_depends_on_snapshot=dbt_model_depends_on_snapshot
         )
     
     # Calculate file hash
@@ -156,7 +180,8 @@ def load_dbt_manifest_cached(
         file_hash,
         dbt_tag,
         dbt_tag_ancestors,
-        dbt_tag_descendants
+        dbt_tag_descendants,
+        dbt_model_depends_on_snapshot
     )
     
     # Thread-safe cache lookup
@@ -175,7 +200,8 @@ def load_dbt_manifest_cached(
                     f"hit_rate: {hit_rate:.1f}%)"
                 )
             
-            return _MANIFEST_CACHE[cache_key]
+            # Return an owned copy so caller-side mutation can't corrupt the cache.
+            return copy.deepcopy(_MANIFEST_CACHE[cache_key])
     
     # CACHE MISS - parse manifest
     _CACHE_STATS["misses"] += 1
@@ -192,7 +218,8 @@ def load_dbt_manifest_cached(
             manifest_path,
             dbt_tag=dbt_tag,
             dbt_tag_ancestors=dbt_tag_ancestors,
-            dbt_tag_descendants=dbt_tag_descendants
+            dbt_tag_descendants=dbt_tag_descendants,
+            dbt_model_depends_on_snapshot=dbt_model_depends_on_snapshot
         )
         
         # Store in cache (thread-safe)
@@ -209,7 +236,8 @@ def load_dbt_manifest_cached(
                 f"(cache_size: {len(_MANIFEST_CACHE)})"
             )
         
-        return result
+        # Return an owned copy so caller-side mutation can't corrupt the cache.
+        return copy.deepcopy(result)
         
     except Exception as e:
         _CACHE_STATS["errors"] += 1

@@ -9,7 +9,79 @@ from fast_bi_dbt_runner.utils import (
     load_dbt_manifest,
     remove_ephemeral_dependencies,
     get_valid_start_date,
+    weave_snapshots_into_model_group,
 )
+
+
+def _snapshot_chain_nodes(with_snapshot_test=False):
+    """model.daily -> snapshot.snap -> model.hourly, optionally a test on the snapshot."""
+    nodes = {
+        "model.p.daily": {
+            "resource_type": "model",
+            "group_type": ["model"],
+            "depends_on": ["source.p.src"],
+        },
+        "snapshot.p.snap": {
+            "resource_type": "snapshot",
+            "group_type": ["snapshot"],
+            "depends_on": ["model.p.daily"],
+        },
+        "model.p.hourly": {
+            "resource_type": "model",
+            "group_type": ["model"],
+            "depends_on": ["snapshot.p.snap"],
+        },
+    }
+    if with_snapshot_test:
+        nodes["test.p.snap_nn"] = {
+            "resource_type": "test",
+            "group_type": ["snapshot"],
+            "depends_on": ["snapshot.p.snap"],
+        }
+    return nodes
+
+
+class TestWeaveSnapshotsIntoModelGroup:
+    def test_blocking_snapshot_moved_to_model_group(self):
+        nodes = weave_snapshots_into_model_group(_snapshot_chain_nodes())
+        gt = nodes["snapshot.p.snap"]["group_type"]
+        assert "model" in gt
+        assert "snapshot" not in gt
+
+    def test_snapshot_test_moved_to_model_group(self):
+        nodes = weave_snapshots_into_model_group(_snapshot_chain_nodes(with_snapshot_test=True))
+        gt = nodes["test.p.snap_nn"]["group_type"]
+        assert "model" in gt
+        assert "snapshot" not in gt
+
+    def test_models_unchanged(self):
+        nodes = weave_snapshots_into_model_group(_snapshot_chain_nodes())
+        assert nodes["model.p.daily"]["group_type"] == ["model"]
+        assert nodes["model.p.hourly"]["group_type"] == ["model"]
+
+    def test_noop_when_no_model_depends_on_snapshot(self):
+        nodes = {
+            "model.p.daily": {
+                "resource_type": "model",
+                "group_type": ["model"],
+                "depends_on": [],
+            },
+            "snapshot.p.snap": {
+                "resource_type": "snapshot",
+                "group_type": ["snapshot"],
+                "depends_on": ["model.p.daily"],
+            },
+        }
+        out = weave_snapshots_into_model_group(nodes)
+        assert out["snapshot.p.snap"]["group_type"] == ["snapshot"]
+
+    def test_noop_when_no_snapshots(self):
+        nodes = {
+            "model.p.a": {"resource_type": "model", "group_type": ["model"], "depends_on": []},
+            "model.p.b": {"resource_type": "model", "group_type": ["model"], "depends_on": ["model.p.a"]},
+        }
+        out = weave_snapshots_into_model_group(nodes)
+        assert out["model.p.b"]["group_type"] == ["model"]
 
 
 class TestCheckDbtTag:

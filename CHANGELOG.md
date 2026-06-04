@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2026.1.0.7] - 2026-06-04
+
+### Added
+- **`DBT_MODEL_DEPENDS_ON_SNAPSHOT` flag**: New Airflow variable (default: `False`). When enabled, a snapshot that a selected model depends on (via `ref()`) is "woven" into the model task group instead of running in the separate snapshot phase. This lets a `model -> snapshot -> model` chain execute as real task-level dependencies inside a single DAG (e.g. `marketing_daily_report -> marketing_daily_report_hourly (snapshot) -> marketing_hourly_report`), so if the snapshot fails the downstream model is skipped rather than silently bypassed. Detection is a pure manifest read (a snapshot is "model-blocking" when a selected model has its node id in `depends_on`), evaluated on the raw `depends_on` before test-dependency rewriting. The snapshot's tests are moved with it, preserving `snapshot -> its tests -> downstream model` ordering (matching `dbt build` semantics). Implemented in the shared `utils`/cache layer (bash operator wired now; k8s/GKE/API parity is a follow-up). Only effective with `DBT_MODEL_SHARDING=True`; it is a documented no-op in batch mode.
+
+### Changed
+- **Manifest cache hardening** (`cached_manifest_loader.py`): the cache key now includes the new flag and normalizes all boolean flags through `to_bool`, so semantically-equal values (e.g. `True` and `"true"`) no longer create duplicate or cross-contaminating entries. `load_dbt_manifest_cached` now returns a deep copy of the cached manifest so caller-side mutation can never corrupt the shared cached object.
+
+### Fixed
+- **`dbt_command` leak in `create_dbt_task_groups`** (bash operator): the command was reassigned on the loop variable, so a model node iterated after a test/source node could inherit the wrong command. It now uses a per-node local command.
+- **Empty task-group guard**: `create_dbt_task_groups` returns `None` when no tasks are created (e.g. all snapshots were woven into the model group), so the now-empty snapshot phase is dropped cleanly by the existing `filter(None, ...)`.
+
+---
+
 ## [2026.1.0.6] - 2026-03-31
 
 ### Added

@@ -54,6 +54,18 @@ class TestCreateCacheKey:
         k2 = _create_cache_key("path", "hash1", [], False, False)
         assert k1 != k2
 
+    def test_depends_on_snapshot_flag_matters(self):
+        k1 = _create_cache_key("path", "hash1", [], False, False, True)
+        k2 = _create_cache_key("path", "hash1", [], False, False, False)
+        assert k1 != k2
+
+    def test_bool_and_string_flags_collapse(self):
+        # "true"/True and "false"/False must produce identical keys.
+        assert _create_cache_key("path", "hash1", [], True, False) == \
+            _create_cache_key("path", "hash1", [], "true", "false")
+        assert _create_cache_key("path", "hash1", [], False, False, True) == \
+            _create_cache_key("path", "hash1", [], "false", "false", "true")
+
 
 class TestLoadDbtManifestCached:
     def test_loads_manifest(self, manifest_path):
@@ -81,6 +93,26 @@ class TestLoadDbtManifestCached:
         load_dbt_manifest_cached(manifest_path)
         stats = get_cache_stats()
         assert stats["hits"] == hits_before + 1
+
+    def test_returns_owned_copy(self, manifest_path):
+        # Mutating a returned manifest must not corrupt the cached object.
+        first = load_dbt_manifest_cached(manifest_path)
+        a_key = next(iter(first))
+        first[a_key]["group_type"].append("__mutated__")
+        first["__injected__"] = {"resource_type": "model"}
+
+        second = load_dbt_manifest_cached(manifest_path)
+        assert "__injected__" not in second
+        assert "__mutated__" not in second[a_key]["group_type"]
+
+    def test_depends_on_snapshot_flag_is_isolated(self, manifest_path):
+        # Different flag values must not share a cache entry.
+        clear_cache()
+        load_dbt_manifest_cached(manifest_path, dbt_model_depends_on_snapshot=False)
+        load_dbt_manifest_cached(manifest_path, dbt_model_depends_on_snapshot=True)
+        stats = get_cache_stats()
+        # Two distinct keys -> two misses, no hit between them.
+        assert stats["misses"] >= 2
 
 
 class TestClearCache:
