@@ -1,6 +1,5 @@
 import os
 from airflow.models import BaseOperator
-from airflow.utils.decorators import apply_defaults
 from fast_bi_dbt_runner.bash_operator.dbt_hook import DbtCliHook
 
 class DbtBaseOperator(BaseOperator):
@@ -42,7 +41,6 @@ class DbtBaseOperator(BaseOperator):
     :type empty: bool
     """
 
-    @apply_defaults
     def __init__(self,
                  env=None,
                  profiles_dir=None,
@@ -123,7 +121,6 @@ class DbtBaseOperator(BaseOperator):
         return self.hook
 
 class DbtRunOperator(DbtBaseOperator):
-    @apply_defaults
     def __init__(self, dbt_project_dir, profiles_dir=None, target=None, git_branch=None, *args, **kwargs):
         super(DbtRunOperator, self).__init__(dbt_project_dir=dbt_project_dir,
                                              profiles_dir=profiles_dir,
@@ -142,7 +139,6 @@ class DbtRunOperator(DbtBaseOperator):
 
 
 class DbtTestOperator(DbtBaseOperator):
-    @apply_defaults
     def __init__(self, dbt_project_dir, profiles_dir=None, target=None, git_branch=None, *args, **kwargs):
         super(DbtTestOperator, self).__init__(dbt_project_dir=dbt_project_dir,
                                               profiles_dir=profiles_dir,
@@ -154,7 +150,6 @@ class DbtTestOperator(DbtBaseOperator):
 
 
 class DbtSourceFreshnessOperator(DbtBaseOperator):
-    @apply_defaults
     def __init__(self, dbt_project_dir, profiles_dir=None, target=None, *args, **kwargs):
         super(DbtSourceFreshnessOperator, self).__init__(dbt_project_dir=dbt_project_dir, profiles_dir=profiles_dir, target=target, *args, **kwargs)
 
@@ -162,7 +157,6 @@ class DbtSourceFreshnessOperator(DbtBaseOperator):
         self.create_hook().run_cli('source freshness')
 
 class DbtReDataOperator(DbtBaseOperator):
-    @apply_defaults
     def __init__(self, dbt_project_dir, profiles_dir=None, target=None, *args, **kwargs):
         super(DbtReDataOperator, self).__init__(dbt_project_dir=dbt_project_dir, profiles_dir=profiles_dir, target=target, *args, **kwargs)
 
@@ -171,7 +165,6 @@ class DbtReDataOperator(DbtBaseOperator):
 
 
 class DbtDocsGenerateOperator(DbtBaseOperator):
-    @apply_defaults
     def __init__(self, dbt_project_dir, profiles_dir=None, target=None, *args, **kwargs):
         super(DbtDocsGenerateOperator, self).__init__(dbt_project_dir=dbt_project_dir, profiles_dir=profiles_dir, target=target, *args,
                                                       **kwargs)
@@ -181,7 +174,6 @@ class DbtDocsGenerateOperator(DbtBaseOperator):
 
 
 class DbtSnapshotOperator(DbtBaseOperator):
-    @apply_defaults
     def __init__(self, dbt_project_dir, profiles_dir=None, target=None, *args, **kwargs):
         super(DbtSnapshotOperator, self).__init__(dbt_project_dir=dbt_project_dir, profiles_dir=profiles_dir, target=target, *args, **kwargs)
 
@@ -190,7 +182,6 @@ class DbtSnapshotOperator(DbtBaseOperator):
 
 
 class DbtSeedOperator(DbtBaseOperator):
-    @apply_defaults
     def __init__(self, dbt_project_dir, profiles_dir=None, target=None, *args, **kwargs):
         super(DbtSeedOperator, self).__init__(dbt_project_dir=dbt_project_dir, profiles_dir=profiles_dir, target=target, *args, **kwargs)
 
@@ -203,7 +194,6 @@ class DbtSeedOperator(DbtBaseOperator):
 
 
 class DbtDepsOperator(DbtBaseOperator):
-    @apply_defaults
     def __init__(self, dbt_project_dir, profiles_dir=None, target=None, *args, **kwargs):
         super(DbtDepsOperator, self).__init__(dbt_project_dir=dbt_project_dir, profiles_dir=profiles_dir, target=target, *args, **kwargs)
 
@@ -212,7 +202,6 @@ class DbtDepsOperator(DbtBaseOperator):
 
 
 class DbtCleanOperator(DbtBaseOperator):
-    @apply_defaults
     def __init__(self, dbt_project_dir, profiles_dir=None, target=None, *args, **kwargs):
         super(DbtCleanOperator, self).__init__(dbt_project_dir=dbt_project_dir, profiles_dir=profiles_dir, target=target, *args, **kwargs)
 
@@ -221,7 +210,6 @@ class DbtCleanOperator(DbtBaseOperator):
 
 
 class DbtDebugOperator(DbtBaseOperator):
-    @apply_defaults
     def __init__(self, dbt_project_dir, profiles_dir=None, target=None, git_branch=None, *args, **kwargs):
         super(DbtDebugOperator, self).__init__(dbt_project_dir=dbt_project_dir,
                                               profiles_dir=profiles_dir,

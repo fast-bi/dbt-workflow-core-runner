@@ -10,7 +10,7 @@ import hashlib
 from pathlib import Path
 from filelock import FileLock
 from airflow.exceptions import AirflowException
-from airflow.hooks.base import BaseHook
+from airflow.sdk.bases.hook import BaseHook
 from fast_bi_dbt_runner.bash_operator.datawarehouse_secrets import DataWarehouseSecretsManager
 
 class DbtCliHook(BaseHook):
