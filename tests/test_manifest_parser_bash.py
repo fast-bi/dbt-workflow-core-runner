@@ -151,6 +151,83 @@ class TestCreateDbtBatchTask:
             assert passed_params["DBT_VAR"] == "{execution_date: 2025-01-01}"
 
 
+class TestGetModelNamesForResourceTypes:
+    def test_combines_multiple_resource_types(self, parser):
+        result = parser.get_model_names_for_resource_types(["model", "seed"])
+        assert result is not None
+        names = result.split(" ")
+        # both a model and a seed appear in one selection string
+        assert "customers" in names
+        assert "raw_customers" in names
+
+    def test_single_string_is_accepted(self, parser):
+        result = parser.get_model_names_for_resource_types("model")
+        names = result.split(" ")
+        assert "customers" in names
+        assert "raw_customers" not in names
+
+    def test_returns_none_when_nothing_matches(self, parser):
+        assert parser.get_model_names_for_resource_types(["nonexistent"]) is None
+
+
+def _snapshot_chain_parser():
+    """A parser whose manifest is a model -> snapshot -> model chain."""
+    from fast_bi_dbt_runner.dbt_manifest_parser_bash_operator import DbtManifestParser
+    import logging
+
+    with patch.object(DbtManifestParser, "__init__", lambda self, **kwargs: None):
+        p = DbtManifestParser.__new__(DbtManifestParser)
+    p.dbt_project_dir = "p"
+    p.airflow_vars = {}
+    p.dbt_tasks = {}
+    p.debug = False
+    p.log = logging.getLogger(__name__)
+    p.manifest_data = {
+        "model.p.daily": {"resource_type": "model", "name": "daily",
+                          "group_type": ["model"], "depends_on": []},
+        "snapshot.p.snap": {"resource_type": "snapshot", "name": "snap",
+                            "group_type": ["snapshot"], "depends_on": ["model.p.daily"]},
+        "model.p.hourly": {"resource_type": "model", "name": "hourly",
+                           "group_type": ["model"], "depends_on": ["snapshot.p.snap"]},
+    }
+    return p
+
+
+class TestManifestHasModelDependsOnSnapshotParser:
+    def test_true_for_chain(self):
+        assert _snapshot_chain_parser().manifest_has_model_depends_on_snapshot() is True
+
+    def test_false_for_jaffle_shop(self, parser):
+        # jaffle_shop has no snapshots
+        assert parser.manifest_has_model_depends_on_snapshot() is False
+
+
+class TestCreateDbtBuildBatchTask:
+    def test_uses_build_command_with_models_and_snapshots(self):
+        p = _snapshot_chain_parser()
+        mock_operator = MagicMock()
+        with patch.object(p, "create_dbt_bash_task", return_value=mock_operator) as mock_create:
+            result = p.create_dbt_build_batch_task(running_rule="all_success")
+            assert result is not None
+            call = mock_create.call_args
+            assert (call.kwargs.get("dbt_command") or call[1].get("dbt_command")) == "build"
+            node_name = call.kwargs.get("node_name") or call[1].get("node_name")
+            names = node_name.split(" ")
+            assert "daily" in names
+            assert "hourly" in names
+            assert "snap" in names  # snapshot interleaved into the build selection
+            alias = call.kwargs.get("node_alias") or call[1].get("node_alias")
+            assert alias == "build_all_models"
+
+    def test_returns_none_when_no_models_or_snapshots(self):
+        p = _snapshot_chain_parser()
+        p.manifest_data = {
+            "seed.p.s": {"resource_type": "seed", "name": "s",
+                         "group_type": ["seed"], "depends_on": []},
+        }
+        assert p.create_dbt_build_batch_task(running_rule="all_success") is None
+
+
 class TestIsResourceTypeInManifest:
     def test_model_in_manifest(self, parser):
         assert parser.is_resource_type_in_manifest("model")

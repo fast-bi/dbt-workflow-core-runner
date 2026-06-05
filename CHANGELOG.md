@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2026.1.0.8] - 2026-06-05
+
+### Added
+- **`DBT_MODEL_DEPENDS_ON_SNAPSHOT` now works in batch mode (`DBT_MODEL_SHARDING=False`)**: previously the flag only had an effect in sharded mode and was a no-op when models ran as a single batch (a plain `dbt run` cannot include snapshots, so a `model -> snapshot -> model` chain ran the downstream model before the snapshot). When the flag is enabled, `DBT_MODEL_SHARDING` is `False`, and a selected model actually depends on a snapshot, the separate model-run + snapshot batches are replaced with a single `dbt build` over the models **and** snapshots. `dbt build` orders models, snapshots, and tests by lineage in one process, so the chain (e.g. `marketing_daily_report -> marketing_daily_report_hourly (snapshot) -> marketing_hourly_report`) resolves correctly. Selection is the explicit node list already resolved in the manifest (tag + ancestors), so scope is identical to the run batch it replaces, just with snapshots interleaved. Tests defined on the selected nodes run inline (standard `dbt build` behavior). `--empty` (E2E) is honored for `build`.
+  - New `DbtBuildOperator` (bash) running `dbt build` with `--empty`/`--full-refresh`/`--vars` parity with `DbtRunOperator`.
+  - New parser helpers: `create_dbt_build_batch_task()`, `get_model_names_for_resource_types()` (multi-type selection), and `manifest_has_model_depends_on_snapshot()` detection.
+  - `dbt_hook.py`: `build` added to the `--target-path` and `--empty` whitelists.
+  - DAG template (`template_dbt_project_dag_bash.py`): computes `use_build_batch` and, when true, emits the single `dbt build` batch and skips the separate snapshot batch. Sharded mode and the non-snapshot batch path are unchanged.
+  - Bash operator only for now; k8s/GKE/API parity remains a follow-up.
+
+### Notes
+- This supersedes the `2026.1.0.7` limitation that `DBT_MODEL_DEPENDS_ON_SNAPSHOT` was a no-op in batch mode. Sharded mode still uses the manifest "weave" introduced in `2026.1.0.7`; batch mode uses the new `dbt build` path.
+
+---
+
 ## [2026.1.0.7] - 2026-06-04
 
 ### Added

@@ -145,6 +145,26 @@ def weave_snapshots_into_model_group(nodes_list):
     return nodes_list
 
 
+def manifest_has_model_depends_on_snapshot(nodes_list):
+    """
+    Return True when some selected model directly depends on a snapshot.
+
+    Used to decide whether the batch (non-sharded) path must switch from the
+    default ``dbt run`` + ``dbt snapshot`` phases to a single ``dbt build`` so the
+    ``model -> snapshot -> model`` ordering is honoured. Detection is on
+    ``resource_type`` (unchanged by weaving) so it works whether or not the
+    snapshot has been woven into the model group.
+    """
+    snapshot_ids = {k for k, v in nodes_list.items() if v.get("resource_type") == "snapshot"}
+    if not snapshot_ids:
+        return False
+    for v in nodes_list.values():
+        if v.get("resource_type") == "model":
+            if any(dep in snapshot_ids for dep in v.get("depends_on", [])):
+                return True
+    return False
+
+
 def get_file_tests(nodes_list):
     for k, v in nodes_list.items():
         if v["resource_type"] == 'test':
