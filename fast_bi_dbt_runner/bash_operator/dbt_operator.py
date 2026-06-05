@@ -141,6 +141,34 @@ class DbtRunOperator(DbtBaseOperator):
         self.create_hook().run_cli('run')
 
 
+class DbtBuildOperator(DbtBaseOperator):
+    """
+    Runs ``dbt build`` for the provided selection.
+
+    Unlike ``DbtRunOperator``, ``dbt build`` runs the full pipeline for the
+    selected nodes (models, snapshots, seeds and their tests) in a single process
+    and in lineage order. This is what makes a ``model -> snapshot -> model`` chain
+    resolve correctly in a single batch task (see DBT_MODEL_DEPENDS_ON_SNAPSHOT in
+    batch mode).
+    """
+    @apply_defaults
+    def __init__(self, dbt_project_dir, profiles_dir=None, target=None, git_branch=None, *args, **kwargs):
+        super(DbtBuildOperator, self).__init__(dbt_project_dir=dbt_project_dir,
+                                               profiles_dir=profiles_dir,
+                                               target=target,
+                                               git_branch=git_branch,
+                                               *args, **kwargs)
+
+    def execute(self, context):
+        full_refresh = context['ti'].xcom_pull(task_ids="show_input_data", key="full_refresh_model")
+        execution_date = context['ti'].xcom_pull(task_ids="show_input_data", key="execution_date")
+        if str(full_refresh) == 'True':
+            self.full_refresh = True
+
+        self.vars = {"execution_date": execution_date}
+        self.create_hook().run_cli('build')
+
+
 class DbtTestOperator(DbtBaseOperator):
     @apply_defaults
     def __init__(self, dbt_project_dir, profiles_dir=None, target=None, git_branch=None, *args, **kwargs):

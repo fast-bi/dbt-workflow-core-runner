@@ -483,10 +483,10 @@ class DbtCliHook(BaseHook):
         if self.target is not None:
             dbt_cmd.extend(['--target', self.target])
 
-        if self.target_path is not None and command and command[0] in ('run', 'test', 'seed', 'snapshot'):
+        if self.target_path is not None and command and command[0] in ('run', 'test', 'seed', 'snapshot', 'build'):
             dbt_cmd.extend(['--target-path', self.target_path])
 
-        if command and command[0] == 'run' and self.empty:
+        if command and command[0] in ('run', 'build') and self.empty:
             dbt_cmd.extend(['--empty'])
 
         if self.vars is not None:

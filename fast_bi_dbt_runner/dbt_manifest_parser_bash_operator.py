@@ -6,6 +6,7 @@ from fast_bi_dbt_runner.bash_operator.dbt_operator import (
     DbtSeedOperator,
     DbtSnapshotOperator,
     DbtRunOperator,
+    DbtBuildOperator,
     DbtTestOperator,
     DbtDepsOperator,
     DbtSourceFreshnessOperator,
@@ -73,6 +74,19 @@ class DbtManifestParser:
             if dbt_command == 'run':
                 dbt_run = DbtRunOperator(
                     task_id=node_alias,
+                    models=node_name,
+                    dbt_project_dir=self.dbt_project_dir,
+                    target=target,
+                    git_branch=git_branch,
+                    warehouse_type=warehouse_type,
+                    task_group=parent_group,
+                    debug=self.debug,
+                    empty=True if self.airflow_vars.get("E2E_MODE_EMPTY") else False
+                )
+            elif dbt_command == 'build':
+                task_id = node_alias if node_alias else "build_all_models"
+                dbt_run = DbtBuildOperator(
+                    task_id=task_id,
                     models=node_name,
                     dbt_project_dir=self.dbt_project_dir,
                     target=target,
@@ -212,11 +226,19 @@ class DbtManifestParser:
                     if self.dbt_tasks.get(upstream_node, []):
                         self.dbt_tasks[upstream_node] >> self.dbt_tasks[node]
 
-    def get_model_names_for_resource_type(self, resource_type, task_params=None):
+    def manifest_has_model_depends_on_snapshot(self):
+        """True when a selected model directly depends on a snapshot (batch build trigger)."""
+        return utils.manifest_has_model_depends_on_snapshot(self.manifest_data)
+
+    def get_model_names_for_resource_types(self, resource_types, task_params=None):
         """
-        Collects all model names from the filtered manifest for a given resource type.
-        Returns a space-separated string suitable for dbt --select.
+        Collects node names from the filtered manifest for the given resource type(s).
+        Returns a space-separated string suitable for dbt --select, or None if empty.
         """
+        if isinstance(resource_types, str):
+            resource_types = [resource_types]
+        resource_types = set(resource_types)
+
         if task_params is None:
             task_params = {}
         task_params = {k: v for k, v in task_params.items() if v}
@@ -227,9 +249,16 @@ class DbtManifestParser:
 
         model_names = []
         for node_id, node_data in manifest.items():
-            if node_data.get("resource_type") == resource_type:
+            if node_data.get("resource_type") in resource_types:
                 model_names.append(node_data["name"])
         return " ".join(model_names) if model_names else None
+
+    def get_model_names_for_resource_type(self, resource_type, task_params=None):
+        """
+        Collects all model names from the filtered manifest for a given resource type.
+        Returns a space-separated string suitable for dbt --select.
+        """
+        return self.get_model_names_for_resource_types([resource_type], task_params)
 
     def create_dbt_batch_task(self, resource_type, dbt_command, running_rule, task_params=None):
         """
@@ -248,6 +277,31 @@ class DbtManifestParser:
             task_params=task_params,
             node_name=select_string,
             node_alias=task_alias
+        )
+
+    def create_dbt_build_batch_task(self, running_rule, task_params=None,
+                                    resource_types=("model", "snapshot")):
+        """
+        Creates a single ``dbt build --select "<models> <snapshots>"`` batch task.
+
+        Used in non-sharded mode when DBT_MODEL_DEPENDS_ON_SNAPSHOT is enabled and a
+        model depends on a snapshot. ``dbt build`` runs the selected models and
+        snapshots (and their tests) in lineage order in one process, so a
+        ``model -> snapshot -> model`` chain resolves correctly - which a separate
+        ``dbt run`` + ``dbt snapshot`` cannot do. Selection is the explicit node
+        list already resolved in the manifest (tag + ancestors), so scope is
+        identical to the run batch it replaces, just with snapshots interleaved.
+        """
+        select_string = self.get_model_names_for_resource_types(list(resource_types), task_params)
+        if not select_string:
+            return None
+
+        return self.create_dbt_bash_task(
+            dbt_command="build",
+            running_rule=running_rule,
+            task_params=task_params,
+            node_name=select_string,
+            node_alias="build_all_models"
         )
 
     def create_dbt_task_groups(

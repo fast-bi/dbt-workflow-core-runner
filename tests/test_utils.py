@@ -10,6 +10,7 @@ from fast_bi_dbt_runner.utils import (
     remove_ephemeral_dependencies,
     get_valid_start_date,
     weave_snapshots_into_model_group,
+    manifest_has_model_depends_on_snapshot,
 )
 
 
@@ -82,6 +83,39 @@ class TestWeaveSnapshotsIntoModelGroup:
         }
         out = weave_snapshots_into_model_group(nodes)
         assert out["model.p.b"]["group_type"] == ["model"]
+
+
+class TestManifestHasModelDependsOnSnapshot:
+    def test_true_for_model_snapshot_model_chain(self):
+        assert manifest_has_model_depends_on_snapshot(_snapshot_chain_nodes()) is True
+
+    def test_detection_survives_weaving(self):
+        # After weaving, group_type changes but resource_type does not, so the
+        # detection (used by the batch build path) must still return True.
+        woven = weave_snapshots_into_model_group(_snapshot_chain_nodes())
+        assert manifest_has_model_depends_on_snapshot(woven) is True
+
+    def test_false_when_no_snapshots(self):
+        nodes = {
+            "model.p.a": {"resource_type": "model", "group_type": ["model"], "depends_on": []},
+            "model.p.b": {"resource_type": "model", "group_type": ["model"], "depends_on": ["model.p.a"]},
+        }
+        assert manifest_has_model_depends_on_snapshot(nodes) is False
+
+    def test_false_when_snapshot_not_upstream_of_model(self):
+        # snapshot depends on a model, but no model depends on the snapshot
+        nodes = {
+            "model.p.daily": {"resource_type": "model", "group_type": ["model"], "depends_on": []},
+            "snapshot.p.snap": {
+                "resource_type": "snapshot",
+                "group_type": ["snapshot"],
+                "depends_on": ["model.p.daily"],
+            },
+        }
+        assert manifest_has_model_depends_on_snapshot(nodes) is False
+
+    def test_false_for_empty_manifest(self):
+        assert manifest_has_model_depends_on_snapshot({}) is False
 
 
 class TestCheckDbtTag:
