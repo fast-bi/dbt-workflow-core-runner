@@ -71,10 +71,12 @@ class DbtManifestParser:
         self.manifest_path = manifest_path
         self.dbt_tag_ancestors = kwargs.get("dbt_tag_ancestors", False)
         self.dbt_tag_descendants = kwargs.get("dbt_tag_descendants", False)
+        self.dbt_model_depends_on_snapshot = airflow_vars.get("DBT_MODEL_DEPENDS_ON_SNAPSHOT", "False")
         self.manifest_data = load_dbt_manifest_cached(self.manifest_path,
                                                      dbt_tag=self.dbt_tag,
                                                      dbt_tag_ancestors=self.dbt_tag_ancestors,
-                                                     dbt_tag_descendants=self.dbt_tag_descendants)
+                                                     dbt_tag_descendants=self.dbt_tag_descendants,
+                                                     dbt_model_depends_on_snapshot=self.dbt_model_depends_on_snapshot)
         self.dbt_tasks = {}
         self.fqn_unique_list = []
         self.existing_task_groups = {}
@@ -105,7 +107,7 @@ class DbtManifestParser:
         else:
             env_vars_with_model.append(k8s.V1EnvVar(name="SEED", value="false"))
 
-        if dbt_command == "run" and self.airflow_vars.get("E2E_MODE_EMPTY"):
+        if dbt_command in ("run", "build") and self.airflow_vars.get("E2E_MODE_EMPTY"):
             env_vars_with_model.append(k8s.V1EnvVar(name="E2E_MODE_EMPTY", value="true"))
 
         if task_params:
@@ -318,11 +320,19 @@ class DbtManifestParser:
                     if self.dbt_tasks.get(upstream_node, []):
                         self.dbt_tasks[upstream_node] >> self.dbt_tasks[node]
 
-    def get_model_names_for_resource_type(self, resource_type, task_params=None):
+    def manifest_has_model_depends_on_snapshot(self):
+        """True when a selected model directly depends on a snapshot (batch build trigger)."""
+        return utils.manifest_has_model_depends_on_snapshot(self.manifest_data)
+
+    def get_model_names_for_resource_types(self, resource_types, task_params=None):
         """
-        Collects all model names from the filtered manifest for a given resource type.
-        Returns a space-separated string suitable for dbt --select.
+        Collects node names from the filtered manifest for the given resource type(s).
+        Returns a space-separated string suitable for dbt --select, or None if empty.
         """
+        if isinstance(resource_types, str):
+            resource_types = [resource_types]
+        resource_types = set(resource_types)
+
         if task_params is None:
             task_params = {}
         task_params = {k: v for k, v in task_params.items() if v}
@@ -333,9 +343,16 @@ class DbtManifestParser:
 
         model_names = []
         for node_id, node_data in manifest.items():
-            if node_data.get("resource_type") == resource_type:
+            if node_data.get("resource_type") in resource_types:
                 model_names.append(node_data["name"])
         return " ".join(model_names) if model_names else None
+
+    def get_model_names_for_resource_type(self, resource_type, task_params=None):
+        """
+        Collects all model names from the filtered manifest for a given resource type.
+        Returns a space-separated string suitable for dbt --select.
+        """
+        return self.get_model_names_for_resource_types([resource_type], task_params)
 
     def create_dbt_batch_task(self, resource_type, dbt_command, running_rule, task_params=None):
         """
@@ -354,6 +371,25 @@ class DbtManifestParser:
             task_params=task_params if task_params else {},
             node_name=select_string,
             node_alias=task_alias
+        )
+
+    def create_dbt_build_batch_task(self, running_rule, task_params=None,
+                                    resource_types=("model", "snapshot")):
+        """
+        Creates a single ``dbt build`` batch pod over models + snapshots, so a
+        ``model -> snapshot -> model`` chain runs in lineage order in one pod
+        (used in non-sharded mode when DBT_MODEL_DEPENDS_ON_SNAPSHOT is enabled).
+        """
+        select_string = self.get_model_names_for_resource_types(list(resource_types), task_params)
+        if not select_string:
+            return None
+
+        return self.create_dbt_kuberoperator_task(
+            dbt_command="build",
+            running_rule=running_rule,
+            task_params=task_params if task_params else {},
+            node_name=select_string,
+            node_alias="build_all_models"
         )
 
     def create_dbt_task_groups(
@@ -391,14 +427,23 @@ class DbtManifestParser:
                         fqn = node_data["fqn"][:-1]  # Remove model name from the FQN
                         task_name = node_data["name"]
                         task_alias = node_data["alias"]
+                        # Use a per-node command so overrides (test/snapshot/source)
+                        # do not leak into subsequent iterations of this loop.
+                        node_command = dbt_command
                         if node_data['resource_type'] == "test":
-                            dbt_command = "test"
-                        if node_data['resource_type'] == "source":
+                            node_command = "test"
+                        elif node_data['resource_type'] == "snapshot":
+                            # A snapshot woven into the model group (DBT_MODEL_DEPENDS_ON_SNAPSHOT)
+                            # must still run as `dbt snapshot`, not `dbt run`.
+                            node_command = "snapshot"
+                        elif node_data['resource_type'] == "source":
                             task_name = f"source:{node_data['schema']}.{task_name}"
-                            dbt_command = "source freshness"
+                            node_command = "source freshness"
                         # Create the dynamic task groups under root_group
-                        self.create_task_groups(root_group, fqn, node_id, task_name, task_alias, dbt_command,
+                        self.create_task_groups(root_group, fqn, node_id, task_name, task_alias, node_command,
                                                 running_rule,
                                                 task_params)
             self.set_dependencies(resource_type)
+            if not root_group.children:
+                return None
             return root_group
