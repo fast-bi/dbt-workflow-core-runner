@@ -33,10 +33,12 @@ class DbtManifestParser:
         self.manifest_path = manifest_path
         self.dbt_tag_ancestors = kwargs.get("dbt_tag_ancestors", False)
         self.dbt_tag_descendants = kwargs.get("dbt_tag_descendants", False)
+        self.dbt_model_depends_on_snapshot = airflow_vars.get("DBT_MODEL_DEPENDS_ON_SNAPSHOT", "False")
         self.manifest_data = load_dbt_manifest_cached(self.manifest_path,
                                                                           dbt_tag=self.dbt_tag,
                                                                           dbt_tag_ancestors=self.dbt_tag_ancestors,
-                                                                          dbt_tag_descendants=self.dbt_tag_descendants)
+                                                                          dbt_tag_descendants=self.dbt_tag_descendants,
+                                                                          dbt_model_depends_on_snapshot=self.dbt_model_depends_on_snapshot)
         self.dbt_tasks = {}
         self.fqn_unique_list = []
         self.existing_task_groups = {}
@@ -283,14 +285,23 @@ class DbtManifestParser:
                         fqn = node_data["fqn"][:-1]  # Remove model name from the FQN
                         task_name = node_data["name"]
                         task_alias = node_data["alias"]
+                        # Use a per-node command so it does not leak across loop
+                        # iterations (a model iterated after a test must stay 'run').
+                        node_command = dbt_command
                         if node_data['resource_type'] == "test":
-                            dbt_command = "test"
-                        if node_data['resource_type'] == "source":
+                            node_command = "test"
+                        elif node_data['resource_type'] == "snapshot":
+                            node_command = "snapshot"
+                        elif node_data['resource_type'] == "source":
                             task_name = f"source:{node_data['schema']}.{task_name}"
-                            dbt_command = "source freshness"
+                            node_command = "source freshness"
                         # Create the dynamic task groups under root_group
-                        self.create_task_groups(root_group, fqn, node_id, task_name, task_alias, dbt_command,
+                        self.create_task_groups(root_group, fqn, node_id, task_name, task_alias, node_command,
                                                 running_rule,
                                                 task_params)
             self.set_dependencies(resource_type)
+            # Guard against an empty group (e.g. all snapshots were woven into the
+            # model group). The DAG drops None via list(filter(None, task_list)).
+            if not root_group.children:
+                return None
             return root_group

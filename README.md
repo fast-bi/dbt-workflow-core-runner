@@ -82,6 +82,7 @@ These three flags follow the same pattern: `is_in_manifest` → `DBT_X` → `DBT
 |----------|---------|-------------|
 | `DBT_SNAPSHOT` | `False` | Enable/disable snapshot (`dbt snapshot`) execution |
 | `DBT_SNAPSHOT_SHARDING` | `True` | `True` = one task per snapshot; `False` = single batch task with `--select` |
+| `DBT_MODEL_DEPENDS_ON_SNAPSHOT` | `False` | When `True`, any snapshot a model depends on (via `ref()`) is woven into the model task group so a `model -> snapshot -> model` chain runs as task-level dependencies in a single DAG (the snapshot's tests move with it). Only effective with `DBT_MODEL_SHARDING=True`; it is a no-op in batch mode. |
 
 ### Source Freshness Control
 
