@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2026.1.0.9] - 2026-06-05
+
+### Added
+- **`DBT_MODEL_DEPENDS_ON_SNAPSHOT` parity for the k8s, GKE, and API operators**: the snapshot-dependency handling shipped for the bash operator in `2026.1.0.8` (batch mode) and `2026.1.0.7` (sharded "weave") now behaves identically across all four operator variants.
+  - New parser methods on the k8s, GKE, and API `DbtManifestParser`: `create_dbt_build_batch_task()`, `get_model_names_for_resource_types()` (multi-type selection), and `manifest_has_model_depends_on_snapshot()`.
+  - k8s/GKE: the build batch runs in a single pod with `DBT_COMMAND=build` and `MODEL="<models snapshots>"`; the existing image entrypoint already runs `dbt build --select <...>`, so no dbt image change is required. `E2E_MODE_EMPTY` is now also forwarded for `build` (mirroring `run`).
+  - API: the build batch posts a single `dbt build --select "<models snapshots>"` command to the API server; `--empty` (E2E) is now honored for `build`.
+  - All three parsers now thread `DBT_MODEL_DEPENDS_ON_SNAPSHOT` into the cached manifest loader (enabling the sharded "weave"), fix the `dbt_command` leak in `create_dbt_task_groups`, run a woven snapshot as `dbt snapshot` (not `dbt run`), and drop an empty task group via the `None` guard — matching the bash operator.
+  - DAG templates `template_dbt_project_dag_k8s.py`, `template_dbt_project_dag_gke.py`, and `template_dbt_project_dag_api_server.py`: compute `use_build_batch` and, when true, emit the single `dbt build` batch and skip the separate snapshot batch (identical to the bash template).
+- **Tests**: parametrized parity tests (`tests/test_manifest_parser_pod_api.py`) covering detection, multi-type selection, and the build batch task for the k8s/GKE/API parsers.
+
+### Notes
+- This completes the "k8s/GKE/API parity is a follow-up" item noted in `2026.1.0.7` and `2026.1.0.8`. The feature now works in both sharded and batch modes for every operator.
+- k8s/GKE E2E `--empty`: the env var is forwarded for `build` as it is for `run`; whether `--empty` is applied still depends on the dbt image entrypoint (unchanged here), so the behavior matches the existing `run` path on those operators.
+
+---
+
 ## [2026.1.0.8] - 2026-06-05
 
 ### Added
