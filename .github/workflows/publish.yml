@@ -89,5 +89,5 @@ jobs:
         TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
       run: |
         echo "📦 Publishing to PyPI..."
-        twine upload dist/*
+        twine upload --verbose dist/* 2>&1 | tee /tmp/twine-verbose.log
         echo "✅ Successfully published to PyPI!"
