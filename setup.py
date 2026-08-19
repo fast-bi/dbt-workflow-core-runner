@@ -1,9 +1,20 @@
 import os
 import re
 from pathlib import Path
-from setuptools import setup, find_packages
 
-# Single source of truth: read version from pyproject.toml (CI may override via CI_COMMIT_TAG)
+# Minimal version shim. ALL OTHER METADATA (description, urls, classifiers,
+# python_requires, author, maintainer, license, etc.) lives in pyproject.toml
+# — duplicating them here caused PyPI to reject uploads with HTTP 400
+# because the wheel ended up with both a deprecated `Home-page:` field
+# (from this file's old `url=`) and a `Project-URL: Homepage` field (from
+# pyproject.toml) pointing at different URLs.
+#
+# This file is kept solely so:
+#   1. CI_COMMIT_TAG (GitLab CI) can still override the version, and
+#   2. Older pip / setuptools versions that expect a setup.py find one.
+#
+# The publish.yml workflow stamps the version from the git tag, so this
+# fallback is rarely exercised in practice — but harmless to keep.
 def _get_version():
     if os.getenv('CI_COMMIT_TAG'):
         return os.getenv('CI_COMMIT_TAG').lstrip('v')
@@ -15,24 +26,12 @@ def _get_version():
             return m.group(1)
     return '0.0.0'
 
-version = _get_version()
+# Importing setup lazily so older environments without setuptools fail
+# with a clearer error than the bare `import setuptools` would surface.
+try:
+    from setuptools import setup
+except ImportError:
+    import sys
+    sys.exit("setuptools is required to build this package")
 
-setup(
-    name="fast_bi_dbt_runner",
-    version=version,  # Set the version here
-    author="Fast.Bi",
-    author_email="support@fast.bi",
-    maintainer="Fast.Bi",
-    maintainer_email="administrator@fast.bi",
-    description="Private Python library who provides managing for set up DBT DAGs.",
-    url="https://gitlab.fast.bi/infrastructure/bi-platform-pypi-packages/fast_bi_dbt_runner",
-    packages=find_packages(),
-    include_package_data=True,
-    classifiers=[
-        "Programming Language :: Python :: 3",
-        "License :: OSI Approved :: MIT License",
-        "Operating System :: OS Independent",
-    ],
-    python_requires='>=3.8',
-    setup_requires=['setuptools'],
-)
+setup(version=_get_version())

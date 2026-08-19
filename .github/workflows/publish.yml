@@ -103,7 +103,20 @@ jobs:
       env:
         TWINE_USERNAME: __token__
         TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        # PyPI accepts uploads at two endpoints. Twine's DEFAULT_REPOSITORY
+        # (twine/utils.py) is still https://upload.pypi.org/legacy/, but
+        # PyPI has been transitioning to the new endpoint at
+        # https://upload.pypi.org/ (no /legacy/). We pin it explicitly so
+        # we're not at the mercy of twine's default — historically twine
+        # has flipped this twice. The metadata validator that returned our
+        # previous HTTP 400 runs identically on both endpoints; switching
+        # URLs will not fix metadata conflicts.
+        #
+        # If you want to ditch API tokens entirely, configure
+        # "Trusted Publishing" on PyPI → Project → Publishing and replace
+        # this whole step with pypa/gh-action-pypi-publish@release/v1.
+        TWINE_REPOSITORY_URL: https://upload.pypi.org/
       run: |
-        echo "📦 Publishing to PyPI..."
+        echo "📦 Publishing to PyPI via ${TWINE_REPOSITORY_URL}"
         twine upload dist/*
         echo "✅ Successfully published to PyPI!"
