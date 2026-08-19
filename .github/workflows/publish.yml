@@ -3,16 +3,13 @@ name: Publish to PyPI
 on:
   push:
     tags:
-      - '2025.*.*.*'  # Trigger on year.major.minor.bugfix tags
+      - '2025.*.*.*'
       - '2026.*.*.*'
-  workflow_dispatch:  # Allow manual triggering
+  workflow_dispatch:
 
 jobs:
   publish:
     runs-on: ubuntu-latest
-    # Prevent two concurrent runs of this job from racing the same tag
-    # (e.g. a re-run + a fresh tag push) — both would otherwise try to
-    # upload the same wheel and PyPI would reject the second with HTTP 400.
     concurrency:
       group: publish-pypi-${{ github.ref }}
       cancel-in-progress: false
@@ -54,22 +51,15 @@ jobs:
         echo "✅ Quality checks completed (informational only)"
       continue-on-error: true
 
-    # If the workflow was triggered by a git tag, stamp pyproject.toml so
-    # the wheel filename is guaranteed to match the tag. This prevents the
-    # exact bug that bit us on 2026.1.1.0: a new tag pushed while
-    # pyproject.toml still carried the previous version, which produced a
-    # wheel PyPI already owned → HTTP 400.
     - name: Stamp version from git tag
       if: startsWith(github.ref, 'refs/tags/')
       run: |
         VERSION="${GITHUB_REF#refs/tags/}"
-        echo "Tag detected: ${VERSION}"
         sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" pyproject.toml
-        echo "Stamped pyproject.toml version to ${VERSION}"
+        grep '^version' pyproject.toml
 
     - name: Build package
       run: |
-        # Install dependencies first to avoid import errors during build
         pip install -r requirements.txt
         python -m build
 
@@ -77,46 +67,27 @@ jobs:
       run: |
         twine check dist/*
 
-    # Pre-flight: bail out *before* attempting the upload if PyPI already
-    # has this version. PyPI returns HTTP 400 "File already exists" for
-    # duplicate filenames, which surfaces as a confusing build failure.
     - name: Verify version is not already on PyPI
       if: matrix.python-version == '3.11'
       env:
         PKG_NAME: fast-bi-dbt-runner
       run: |
-        WHL=$(ls dist/*.whl | head -n1)
-        WHL_VERSION=$(basename "${WHL}" | sed -E 's/^[^0-9]+([0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?).*$/\1/')
-        echo "Wheel: ${WHL}"
-        echo "Detected version: ${WHL_VERSION}"
+        WHL_VERSION=$(grep -oP '(?<=^version = ")[^"]+' pyproject.toml)
         HTTP_CODE=$(curl -s -o /tmp/pypi.json -w "%{http_code}" \
           "https://pypi.org/pypi/${PKG_NAME}/${WHL_VERSION}/json")
         if [ "${HTTP_CODE}" = "200" ]; then
-          echo "❌ Version ${WHL_VERSION} is already published on PyPI — aborting."
-          cat /tmp/pypi.json | python -c "import json,sys;d=json.load(sys.stdin);print('Published:',d['info']['version'],'on',d['urls'][0]['upload_time'])"
+          echo "❌ Version ${WHL_VERSION} already on PyPI — aborting."
+          python -c "import json;d=json.load(open('/tmp/pypi.json'));print('Published',d['info']['version'],'on',d['urls'][0]['upload_time'])"
           exit 1
         fi
-        echo "✅ Version ${WHL_VERSION} not on PyPI yet — safe to upload."
+        echo "✅ ${WHL_VERSION} not on PyPI yet."
 
     - name: Publish to PyPI
       if: matrix.python-version == '3.11'
       env:
         TWINE_USERNAME: __token__
         TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-        # PyPI accepts uploads at two endpoints. Twine's DEFAULT_REPOSITORY
-        # (twine/utils.py) is still https://upload.pypi.org/legacy/, but
-        # PyPI has been transitioning to the new endpoint at
-        # https://upload.pypi.org/ (no /legacy/). We pin it explicitly so
-        # we're not at the mercy of twine's default — historically twine
-        # has flipped this twice. The metadata validator that returned our
-        # previous HTTP 400 runs identically on both endpoints; switching
-        # URLs will not fix metadata conflicts.
-        #
-        # If you want to ditch API tokens entirely, configure
-        # "Trusted Publishing" on PyPI → Project → Publishing and replace
-        # this whole step with pypa/gh-action-pypi-publish@release/v1.
-        TWINE_REPOSITORY_URL: https://upload.pypi.org/
       run: |
-        echo "📦 Publishing to PyPI via ${TWINE_REPOSITORY_URL}"
+        echo "📦 Publishing to PyPI..."
         twine upload dist/*
         echo "✅ Successfully published to PyPI!"
