@@ -29,6 +29,9 @@ def is_resource_type_in_manifest(manifest_data, resource_type):
     if any(resource_type in sub_dict.values() for sub_dict in manifest_data.values()):
         return 1
 
+def is_manifest_node_enabled(node):
+    """Treat nodes as enabled unless dbt explicitly disables them."""
+    return node.get("config", {}).get("enabled", True) is not False
 
 def check_dbt_tag(dbt_tag):
     """
@@ -349,7 +352,8 @@ def load_dbt_manifest(manifest_path,
         node_dependency = {
             k: v
             for k, v in file_content["nodes"].items()
-            if k.split(".")[0] in ["model", "seed", "snapshot", "test", "source"]}
+            if k.split(".")[0] in ["model", "seed", "snapshot", "test", "source"]
+            and is_manifest_node_enabled(v)}
 
         get_sources = {
             k: v
