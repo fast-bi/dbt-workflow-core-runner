@@ -2,6 +2,7 @@ import logging
 import fast_bi_dbt_runner.utils as utils
 from fast_bi_dbt_runner.cached_manifest_loader import load_dbt_manifest_cached
 from airflow.utils.task_group import TaskGroup
+from airflow.utils.trigger_rule import TriggerRule
 from fast_bi_dbt_runner.bash_operator.dbt_operator import (
     DbtSeedOperator,
     DbtSnapshotOperator,
@@ -35,11 +36,15 @@ class DbtManifestParser:
         self.dbt_tag_ancestors = kwargs.get("dbt_tag_ancestors", False)
         self.dbt_tag_descendants = kwargs.get("dbt_tag_descendants", False)
         self.dbt_model_depends_on_snapshot = airflow_vars.get("DBT_MODEL_DEPENDS_ON_SNAPSHOT", "False")
+        self.dbt_skip_foreign_tagged_ancestors = kwargs.get(
+            "dbt_skip_foreign_tagged_ancestors",
+            airflow_vars.get("DBT_SKIP_FOREIGN_TAGGED_ANCESTORS", "False"),)
         self.manifest_data = load_dbt_manifest_cached(self.manifest_path,
                                                                           dbt_tag=self.dbt_tag,
                                                                           dbt_tag_ancestors=self.dbt_tag_ancestors,
                                                                           dbt_tag_descendants=self.dbt_tag_descendants,
-                                                                          dbt_model_depends_on_snapshot=self.dbt_model_depends_on_snapshot)
+                                                                          dbt_model_depends_on_snapshot=self.dbt_model_depends_on_snapshot,
+                                                                          dbt_skip_foreign_tagged_ancestors=self.dbt_skip_foreign_tagged_ancestors)
         self.dbt_tasks = {}
         self.fqn_unique_list = []
         self.existing_task_groups = {}
@@ -80,6 +85,7 @@ class DbtManifestParser:
                     git_branch=git_branch,
                     warehouse_type=warehouse_type,
                     task_group=parent_group,
+                    trigger_rule=running_rule,
                     debug=self.debug,
                     empty=True if self.airflow_vars.get("E2E_MODE_EMPTY") else False
                 )
@@ -92,6 +98,7 @@ class DbtManifestParser:
                     target=target,
                     git_branch=git_branch,
                     warehouse_type=warehouse_type,
+                    trigger_rule=running_rule,
                     task_group=parent_group,
                     debug=self.debug,
                     empty=True if self.airflow_vars.get("E2E_MODE_EMPTY") else False
@@ -104,6 +111,7 @@ class DbtManifestParser:
                     target=target,
                     git_branch=git_branch,
                     warehouse_type=warehouse_type,
+                    trigger_rule=running_rule,
                     task_group=parent_group,
                     debug=self.debug
                 )
@@ -118,6 +126,7 @@ class DbtManifestParser:
                     target=target,
                     git_branch=git_branch,
                     warehouse_type=warehouse_type,
+                    trigger_rule=running_rule,
                     task_group=parent_group,
                     debug=self.debug
                 )
@@ -133,6 +142,7 @@ class DbtManifestParser:
                     git_branch=git_branch,
                     warehouse_type=warehouse_type,
                     task_group=parent_group,
+                    trigger_rule=running_rule,
                     debug=self.debug
                 )
             elif dbt_command == 'source freshness':
@@ -145,6 +155,7 @@ class DbtManifestParser:
                     dbt_project_dir=self.dbt_project_dir,
                     warehouse_type=warehouse_type,
                     task_group=parent_group,
+                    trigger_rule=running_rule,
                     debug=self.debug
                 )
             elif dbt_command == 're_data':
@@ -153,6 +164,7 @@ class DbtManifestParser:
                     dbt_project_dir=self.dbt_project_dir,
                     warehouse_type=warehouse_type,
                     task_group=parent_group,
+                    trigger_rule=running_rule,
                     debug=self.debug
                 )
             elif dbt_command == 'deps':
@@ -160,6 +172,7 @@ class DbtManifestParser:
                     task_id=node_alias,
                     dbt_project_dir=self.dbt_project_dir,
                     warehouse_type=warehouse_type,
+                    trigger_rule=running_rule,
                     debug=self.debug
                 )
             elif dbt_command == 'debug':
@@ -170,6 +183,7 @@ class DbtManifestParser:
                     git_branch=git_branch,
                     warehouse_type=warehouse_type,
                     task_group=parent_group,
+                    trigger_rule=running_rule,
                     debug=self.debug
                 )
             else:
@@ -342,16 +356,21 @@ class DbtManifestParser:
                         # Use a per-node command so it does not leak across loop
                         # iterations (a model iterated after a test must stay 'run').
                         node_command = dbt_command
+                        node_running_rule = running_rule
                         if node_data['resource_type'] == "test":
                             node_command = "test"
                         elif node_data['resource_type'] == "snapshot":
                             node_command = "snapshot"
+                            # Snapshots woven into the models group (DBT_MODEL_DEPENDS_ON_SNAPSHOT)
+                            # should run regardless of upstream success/failure.
+                            if node_data.get("woven_into_models") or resource_type == "model":
+                                node_running_rule = TriggerRule.ALL_DONE
                         elif node_data['resource_type'] == "source":
                             task_name = f"source:{node_data['schema']}.{task_name}"
                             node_command = "source freshness"
                         # Create the dynamic task groups under root_group
                         self.create_task_groups(root_group, fqn, node_id, task_name, task_alias, node_command,
-                                                running_rule,
+                                                node_running_rule,
                                                 task_params)
             self.set_dependencies(resource_type)
             # Guard against an empty group (e.g. all snapshots were woven into the

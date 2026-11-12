@@ -2,6 +2,8 @@ import re
 import json
 import datetime
 from airflow.utils.dates import days_ago
+import ast
+from pathlib import Path
 
 
 def get_valid_start_date(start_date_raw):
@@ -145,6 +147,10 @@ def weave_snapshots_into_model_group(nodes_list):
             group_type.append("model")
         if "snapshot" in group_type:
             group_type.remove("snapshot")
+        # Snapshots woven into the models TaskGroup should run even if an
+        # upstream model/test failed (TriggerRule.ALL_DONE in the parser).
+        if nid in blocking:
+            nodes_list[nid]["woven_into_models"] = True
     return nodes_list
 
 
@@ -315,6 +321,387 @@ def get_models_with_tag(manifest_data, dbt_tag):
     result_with_test = get_tests_for_tagged_models(manifest_data, filtered_tasks)
     return result_with_test
 
+def _remove_nodes_and_scrub_deps(manifest_subset, to_remove):
+    """Remove nodes and strip their ids from remaining depends_on lists."""
+    if not to_remove:
+        return manifest_subset
+
+    for node_id, node in list(manifest_subset.items()):
+        if node.get("resource_type") != "test":
+            continue
+        deps = node.get("depends_on") or []
+        if any(dep in to_remove for dep in deps):
+            to_remove.add(node_id)
+
+    cleaned = {}
+    for node_id, node in manifest_subset.items():
+        if node_id in to_remove:
+            continue
+        node = dict(node)
+        node["depends_on"] = [dep for dep in node.get("depends_on", []) if dep not in to_remove]
+        cleaned[node_id] = node
+    return cleaned
+
+
+def _ast_string_list(node):
+    """Extract a list of strings from an AST Constant / Str / List / Tuple node."""
+    if node is None:
+        return None
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return [node.value]
+    if hasattr(ast, "Str") and isinstance(node, ast.Str):
+        return [node.s]
+    if isinstance(node, (ast.List, ast.Tuple)):
+        tags = []
+        for elt in node.elts:
+            if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                tags.append(elt.value)
+            elif hasattr(ast, "Str") and isinstance(elt, ast.Str):
+                tags.append(elt.s)
+            else:
+                return None
+        return tags
+    return None
+
+
+def _ast_truthy_literal(node):
+    """Return True/False for a literal bool/string assign value; None if dynamic."""
+    if isinstance(node, ast.Constant):
+        if isinstance(node.value, bool):
+            return node.value
+        if isinstance(node.value, str):
+            try:
+                return to_bool(node.value)
+            except ValueError:
+                return None
+    if hasattr(ast, "NameConstant") and isinstance(node, ast.NameConstant):
+        if isinstance(node.value, bool):
+            return node.value
+    if hasattr(ast, "Str") and isinstance(node, ast.Str):
+        try:
+            return to_bool(node.s)
+        except ValueError:
+            return None
+    return None
+
+
+def _ast_string_value(node):
+    """Extract a single string from an AST Constant / Str node."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if hasattr(ast, "Str") and isinstance(node, ast.Str):
+        return node.s
+    return None
+
+
+def schedule_interval_to_seconds(interval):
+    """
+    Convert an Airflow schedule_interval to seconds between runs.
+    Smaller value = runs more frequently (considered to "run first").
+    Unknown / None / @once → +inf (lowest ownership priority).
+    """
+    if interval is None:
+        return float("inf")
+    if isinstance(interval, (int, float)):
+        return float(interval)
+    if isinstance(interval, datetime.timedelta):
+        return float(interval.total_seconds())
+
+    if not isinstance(interval, str):
+        return float("inf")
+
+    s = interval.strip()
+    if not s:
+        return float("inf")
+
+    presets = {
+        "@once": float("inf"),
+        "@continuous": 0.0,
+        "@hourly": 3600.0,
+        "@daily": 86400.0,
+        "@weekly": 604800.0,
+        "@monthly": 2592000.0,
+        "@yearly": 31536000.0,
+        "@annually": 31536000.0,
+    }
+    if s.lower() in presets:
+        return presets[s.lower()]
+
+    m = re.fullmatch(
+        r"(?i)(\d+(?:\.\d+)?)\s*(seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d)",
+        s,
+    )
+    if m:
+        amount = float(m.group(1))
+        unit = m.group(2).lower()
+        if unit.startswith("s"):
+            return amount
+        if unit.startswith("m") and not unit.startswith("mo"):
+            return amount * 60.0
+        if unit.startswith("h"):
+            return amount * 3600.0
+        if unit.startswith("d"):
+            return amount * 86400.0
+
+    parts = s.split()
+    if len(parts) in (5, 6):
+        minute, hour = parts[0], parts[1]
+        if re.fullmatch(r"\*/(\d+)", minute):
+            return float(int(re.fullmatch(r"\*/(\d+)", minute).group(1)) * 60)
+        if minute.isdigit() and re.fullmatch(r"\*/(\d+)", hour):
+            return float(int(re.fullmatch(r"\*/(\d+)", hour).group(1)) * 3600)
+        if minute.isdigit() and hour == "*":
+            return 3600.0
+        if minute.isdigit() and hour.isdigit():
+            return 86400.0
+
+    return float("inf")
+
+
+def _infer_schedule_seconds_from_filename(path):
+    """Fallback when DAG_SCHEDULE_INTERVAL is only in Airflow Variables."""
+    name = Path(path).stem.lower()
+    patterns = [
+        (r"15\s*min|15min|_15m\b", 900.0),
+        (r"30\s*min|30min|_30m\b", 1800.0),
+        (r"hourly|_1h\b", 3600.0),
+        (r"daily", 86400.0),
+        (r"weekly", 604800.0),
+    ]
+    for pattern, seconds in patterns:
+        if re.search(pattern, name):
+            return seconds
+    return float("inf")
+
+
+def _read_schedule_seconds_from_airflow_var(project_vars_key, filename_hint=None):
+    """Try Airflow Variable DAG_SCHEDULE_INTERVAL; fall back to filename hint."""
+    schedule = None
+    if project_vars_key:
+        try:
+            from airflow.models import Variable
+            project_vars = Variable.get(project_vars_key, deserialize_json=True, default_var=None)
+            if isinstance(project_vars, dict):
+                schedule = project_vars.get("DAG_SCHEDULE_INTERVAL")
+        except Exception:
+            schedule = None
+
+    seconds = schedule_interval_to_seconds(schedule)
+    if seconds != float("inf"):
+        return seconds
+    if filename_hint is not None:
+        return _infer_schedule_seconds_from_filename(filename_hint)
+    return float("inf")
+
+
+def discover_dag_tag_groups(dags_dir):
+    """
+    Auto-discover schedule tag groups from sibling DAG files.
+
+    Only files that enable DBT_SKIP_FOREIGN_TAGGED_ANCESTORS with a literal
+    True/"True" are included. Returns a list of
+    ``{"tags": frozenset, "interval_seconds": float, "source": str}``.
+    """
+    groups = []
+    dags_path = Path(dags_dir) if dags_dir else None
+    if not dags_path or not dags_path.is_dir():
+        return groups
+
+    for path in sorted(dags_path.glob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError, ValueError):
+            continue
+
+        dbt_tag_node = None
+        project_vars_key = None
+        skip_enabled = False
+        for stmt in tree.body:
+            if not isinstance(stmt, ast.Assign):
+                continue
+            for target in stmt.targets:
+                if not isinstance(target, ast.Name):
+                    continue
+                if target.id == "DBT_TAG":
+                    dbt_tag_node = stmt.value
+                elif target.id == "DBT_SKIP_FOREIGN_TAGGED_ANCESTORS":
+                    lit = _ast_truthy_literal(stmt.value)
+                    if lit is True:
+                        skip_enabled = True
+                elif target.id == "PROJECT_VARS_LIST":
+                    project_vars_key = _ast_string_value(stmt.value)
+
+        if not skip_enabled or dbt_tag_node is None:
+            continue
+        tags = _ast_string_list(dbt_tag_node)
+        if not tags:
+            continue
+
+        tag_set = frozenset(check_dbt_tag(tags))
+        interval_seconds = _read_schedule_seconds_from_airflow_var(project_vars_key, path)
+        groups.append({
+            "tags": tag_set,
+            "interval_seconds": interval_seconds,
+            "source": path.name,
+        })
+
+    best_by_tags = {}
+    for g in groups:
+        key = g["tags"]
+        prev = best_by_tags.get(key)
+        if prev is None or g["interval_seconds"] < prev["interval_seconds"]:
+            best_by_tags[key] = g
+    return list(best_by_tags.values())
+
+
+def resolve_owning_tag_group(model_tags, tag_groups):
+    """
+    Pick the schedule DAG tag-group that owns a model.
+
+    Among groups that intersect the model's tags, prefer:
+      1) most frequent schedule (smallest interval_seconds)
+      2) largest tag overlap
+      3) smallest tag group
+      4) stable tag order
+    """
+    model_tag_set = set(model_tags or [])
+    if not model_tag_set or not tag_groups:
+        return None
+
+    normalized = []
+    for g in tag_groups:
+        if isinstance(g, frozenset):
+            normalized.append({"tags": g, "interval_seconds": float("inf")})
+        elif isinstance(g, dict):
+            normalized.append({
+                "tags": frozenset(g.get("tags") or []),
+                "interval_seconds": float(g.get("interval_seconds", float("inf"))),
+            })
+        elif isinstance(g, (tuple, list)) and len(g) >= 1:
+            tags = frozenset(g[0])
+            seconds = float(g[1]) if len(g) > 1 else float("inf")
+            normalized.append({"tags": tags, "interval_seconds": seconds})
+
+    candidates = [g for g in normalized if model_tag_set & g["tags"]]
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]["tags"]
+
+    candidates.sort(key=lambda g: (
+        g["interval_seconds"],
+        -len(model_tag_set & g["tags"]),
+        len(g["tags"]),
+        sorted(g["tags"]),
+    ))
+    return candidates[0]["tags"]
+
+
+def exclude_foreign_tagged_relatives(manifest_subset, dbt_tag):
+    """
+    Drop relative models that belong to another tagged DAG.
+
+    Keep nodes with the current DAG tags, and untagged relatives.
+    Drop models/seeds/snapshots that have other tags but not this DAG's tags.
+    """
+    if not dbt_tag or not manifest_subset:
+        return manifest_subset
+
+    current_tag_nodes = set(filter_tasks_by_tag(manifest_subset, dbt_tag).keys())
+
+    to_remove = set()
+    for node_id, node in manifest_subset.items():
+        if node.get("resource_type") == "test":
+            continue
+        if node_id in current_tag_nodes:
+            continue
+        tags = node.get("tags") or []
+        if tags:
+            to_remove.add(node_id)
+
+    return _remove_nodes_and_scrub_deps(manifest_subset, to_remove)
+
+
+def exclude_models_owned_by_other_schedule_dags(manifest_subset, dbt_tag, tag_groups):
+    """
+    Drop models whose automatic schedule-owner is a different DAG tag group.
+
+    Dual-tagged models (e.g. manufactury + inventory) are owned by the more
+    frequent schedule DAG so they are not re-run in both.
+    """
+    current = frozenset(check_dbt_tag(dbt_tag))
+    if not current or not manifest_subset:
+        return manifest_subset
+
+    groups = list(tag_groups or [])
+    if not any(
+        (g.get("tags") if isinstance(g, dict) else g) == current
+        for g in groups
+    ):
+        groups.append({"tags": current, "interval_seconds": float("inf"), "source": "current"})
+
+    tag_sets = []
+    for g in groups:
+        if isinstance(g, dict):
+            tag_sets.append(frozenset(g.get("tags") or []))
+        elif isinstance(g, frozenset):
+            tag_sets.append(g)
+        elif isinstance(g, (tuple, list)) and g:
+            tag_sets.append(frozenset(g[0]))
+    if len({frozenset(t) for t in tag_sets}) < 2:
+        return manifest_subset
+
+    to_remove = set()
+    for node_id, node in manifest_subset.items():
+        if node.get("resource_type") == "test":
+            continue
+        owner = resolve_owning_tag_group(node.get("tags"), groups)
+        if owner is not None and owner != current:
+            to_remove.add(node_id)
+
+    return _remove_nodes_and_scrub_deps(manifest_subset, to_remove)
+
+
+def prune_orphaned_lineage(manifest_subset, dbt_tag):
+    """
+    After foreign models are dropped, remove untagged leftovers (sources, seeds)
+    that are no longer ancestors of this DAG's tagged models.
+    """
+    dbt_tag = check_dbt_tag(dbt_tag)
+    if not dbt_tag or not manifest_subset:
+        return manifest_subset
+
+    needed = set()
+    for node_id, node in manifest_subset.items():
+        if node.get("resource_type") == "test":
+            continue
+        tags = node.get("tags") or []
+        if any(tag in tags for tag in dbt_tag):
+            needed.add(node_id)
+
+    if not needed:
+        return manifest_subset
+
+    stack = list(needed)
+    while stack:
+        node_id = stack.pop()
+        node = manifest_subset.get(node_id)
+        if not node:
+            continue
+        for dep in node.get("depends_on") or []:
+            if dep in manifest_subset and dep not in needed:
+                needed.add(dep)
+                stack.append(dep)
+
+    for node_id, node in manifest_subset.items():
+        if node.get("resource_type") != "test":
+            continue
+        if any(dep in needed for dep in (node.get("depends_on") or [])):
+            needed.add(node_id)
+
+    to_remove = set(manifest_subset.keys()) - needed
+    return _remove_nodes_and_scrub_deps(manifest_subset, to_remove)
+
 
 def change_macros_dependencies_to_source_dependencies(current_node, source_dict):
     depends_list = []
@@ -341,10 +728,16 @@ def load_dbt_manifest(manifest_path,
                       dbt_tag=[],
                       dbt_tag_ancestors=False,
                       dbt_tag_descendants=False,
-                      dbt_model_depends_on_snapshot=False):
+                      dbt_model_depends_on_snapshot=False,
+                      dbt_skip_foreign_tagged_ancestors=False):
     """
     Helper function to load the dbt manifest file.
     Returns: A JSON object containing the dbt manifest content.
+
+    When dbt_skip_foreign_tagged_ancestors is enabled:
+      - ancestor/descendant relatives tagged for another DAG are dropped
+      - dual-tagged models are assigned to one schedule DAG automatically
+      - orphan untagged sources/seeds left behind are pruned
     """
     with open(manifest_path, encoding="utf-8") as file:
         file_content = json.load(file)
@@ -409,6 +802,18 @@ def load_dbt_manifest(manifest_path,
                 node_dependency_unique_filtered = {**get_models_with_tag_and_parents(node_dependency_unique, dbt_tag), **get_models_with_tag_and_children(node_dependency_unique, dbt_tag)} 
             if not to_bool(dbt_tag_ancestors) and not to_bool(dbt_tag_descendants):
                 node_dependency_unique_filtered = get_models_with_tag(node_dependency_unique, dbt_tag)
+            if to_bool(dbt_skip_foreign_tagged_ancestors):
+                if to_bool(dbt_tag_ancestors) or to_bool(dbt_tag_descendants):
+                    node_dependency_unique_filtered = exclude_foreign_tagged_relatives(
+                        node_dependency_unique_filtered, dbt_tag
+                    )
+                tag_groups = discover_dag_tag_groups(Path(manifest_path).resolve().parent)
+                node_dependency_unique_filtered = exclude_models_owned_by_other_schedule_dags(
+                    node_dependency_unique_filtered, dbt_tag, tag_groups
+                )
+                node_dependency_unique_filtered = prune_orphaned_lineage(
+                    node_dependency_unique_filtered, dbt_tag
+                )
         else:
             node_dependency_unique_filtered = node_dependency_unique
 
