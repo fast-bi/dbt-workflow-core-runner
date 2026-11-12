@@ -76,7 +76,8 @@ def _create_cache_key(
     dbt_tag: List[str],
     dbt_tag_ancestors: bool,
     dbt_tag_descendants: bool,
-    dbt_model_depends_on_snapshot: bool = False
+    dbt_model_depends_on_snapshot: bool = False,
+    dbt_skip_foreign_tagged_ancestors: bool = False
 ) -> Tuple:
     """
     Create a cache key from manifest parameters.
@@ -86,6 +87,7 @@ def _create_cache_key(
     - DBT tags (different tags = different filtered results)
     - Ancestor/descendant flags (affects dependency resolution)
     - Model-depends-on-snapshot flag (changes node grouping)
+    - Skip-foreign-tagged-ancestors flag (changes which relatives are kept)
     
     Args:
         manifest_path: Path to manifest file (for logging)
@@ -94,6 +96,7 @@ def _create_cache_key(
         dbt_tag_ancestors: Include ancestors of tagged models
         dbt_tag_descendants: Include descendants of tagged models
         dbt_model_depends_on_snapshot: Weave snapshots into the model group
+        dbt_skip_foreign_tagged_ancestors: Drop relatives owned by other tagged DAGs
         
     Returns:
         Tuple suitable for use as dict key
@@ -106,7 +109,8 @@ def _create_cache_key(
         tags_key,
         _norm_bool(dbt_tag_ancestors),
         _norm_bool(dbt_tag_descendants),
-        _norm_bool(dbt_model_depends_on_snapshot)
+        _norm_bool(dbt_model_depends_on_snapshot),
+        _norm_bool(dbt_skip_foreign_tagged_ancestors)
     )
 
 
@@ -134,7 +138,8 @@ def load_dbt_manifest_cached(
     dbt_tag: Optional[List[str]] = None,
     dbt_tag_ancestors: bool = False,
     dbt_tag_descendants: bool = False,
-    dbt_model_depends_on_snapshot: bool = False
+    dbt_model_depends_on_snapshot: bool = False,
+    dbt_skip_foreign_tagged_ancestors: bool = False
 ) -> Dict[str, Any]:
     """
     Load and parse dbt manifest with caching.
@@ -149,6 +154,7 @@ def load_dbt_manifest_cached(
         dbt_tag_ancestors: Include ancestors of tagged models (default: False)
         dbt_tag_descendants: Include descendants of tagged models (default: False)
         dbt_model_depends_on_snapshot: Weave snapshots into the model group (default: False)
+        dbt_skip_foreign_tagged_ancestors: Drop relatives owned by other tagged DAGs (default: False)
         
     Returns:
         Parsed manifest data dictionary. A deep copy is returned so callers may
@@ -170,7 +176,8 @@ def load_dbt_manifest_cached(
             dbt_tag=dbt_tag,
             dbt_tag_ancestors=dbt_tag_ancestors,
             dbt_tag_descendants=dbt_tag_descendants,
-            dbt_model_depends_on_snapshot=dbt_model_depends_on_snapshot
+            dbt_model_depends_on_snapshot=dbt_model_depends_on_snapshot,
+            dbt_skip_foreign_tagged_ancestors=dbt_skip_foreign_tagged_ancestors
         )
     
     # Calculate file hash
@@ -181,7 +188,8 @@ def load_dbt_manifest_cached(
         dbt_tag,
         dbt_tag_ancestors,
         dbt_tag_descendants,
-        dbt_model_depends_on_snapshot
+        dbt_model_depends_on_snapshot,
+        dbt_skip_foreign_tagged_ancestors
     )
     
     # Thread-safe cache lookup
@@ -219,7 +227,8 @@ def load_dbt_manifest_cached(
             dbt_tag=dbt_tag,
             dbt_tag_ancestors=dbt_tag_ancestors,
             dbt_tag_descendants=dbt_tag_descendants,
-            dbt_model_depends_on_snapshot=dbt_model_depends_on_snapshot
+            dbt_model_depends_on_snapshot=dbt_model_depends_on_snapshot,
+            dbt_skip_foreign_tagged_ancestors=dbt_skip_foreign_tagged_ancestors
         )
         
         # Store in cache (thread-safe)

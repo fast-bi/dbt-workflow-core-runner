@@ -49,18 +49,22 @@ class DbtManifestParser:
         self.dbt_tag_ancestors = kwargs.get("dbt_tag_ancestors", False)
         self.dbt_tag_descendants = kwargs.get("dbt_tag_descendants", False)
         self.dbt_model_depends_on_snapshot = airflow_vars.get("DBT_MODEL_DEPENDS_ON_SNAPSHOT", "False")
+        self.dbt_skip_foreign_tagged_ancestors = kwargs.get(
+            "dbt_skip_foreign_tagged_ancestors",
+            airflow_vars.get("DBT_SKIP_FOREIGN_TAGGED_ANCESTORS", "False"),)
         self.manifest_data = load_dbt_manifest_cached(self.manifest_path,
                                                      dbt_tag=self.dbt_tag,
                                                      dbt_tag_ancestors=self.dbt_tag_ancestors,
                                                      dbt_tag_descendants=self.dbt_tag_descendants,
-                                                     dbt_model_depends_on_snapshot=self.dbt_model_depends_on_snapshot)
+                                                     dbt_model_depends_on_snapshot=self.dbt_model_depends_on_snapshot,
+                                                     dbt_skip_foreign_tagged_ancestors=self.dbt_skip_foreign_tagged_ancestors)
         self.dbt_tasks = {}
         self.connection_id = connection_id
         self.dbt_log_format_file = "debug" if self.airflow_vars.get("MODEL_DEBUG_LOG") \
                                 and self.airflow_vars.get("MODEL_DEBUG_LOG").lower() == "true" \
                                 else "info"
         self.fqn_unique_list = []
-        self.existing_task_groups = {}
+        self.existing_task_groups = {}     
 
     def is_resource_type_in_manifest(self, resource_type):
         return utils.is_resource_type_in_manifest(self.manifest_data, resource_type)

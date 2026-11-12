@@ -59,12 +59,19 @@ class TestCreateCacheKey:
         k2 = _create_cache_key("path", "hash1", [], False, False, False)
         assert k1 != k2
 
+    def test_skip_foreign_tagged_ancestors_flag_matters(self):
+        k1 = _create_cache_key("path", "hash1", [], False, False, False, True)
+        k2 = _create_cache_key("path", "hash1", [], False, False, False, False)
+        assert k1 != k2
+
     def test_bool_and_string_flags_collapse(self):
         # "true"/True and "false"/False must produce identical keys.
         assert _create_cache_key("path", "hash1", [], True, False) == \
             _create_cache_key("path", "hash1", [], "true", "false")
         assert _create_cache_key("path", "hash1", [], False, False, True) == \
             _create_cache_key("path", "hash1", [], "false", "false", "true")
+        assert _create_cache_key("path", "hash1", [], False, False, False, True) == \
+            _create_cache_key("path", "hash1", [], "false", "false", "false", "true")
 
 
 class TestLoadDbtManifestCached:
@@ -112,6 +119,13 @@ class TestLoadDbtManifestCached:
         load_dbt_manifest_cached(manifest_path, dbt_model_depends_on_snapshot=True)
         stats = get_cache_stats()
         # Two distinct keys -> two misses, no hit between them.
+        assert stats["misses"] >= 2
+
+    def test_skip_foreign_tagged_ancestors_flag_is_isolated(self, manifest_path):
+        clear_cache()
+        load_dbt_manifest_cached(manifest_path, dbt_skip_foreign_tagged_ancestors=False)
+        load_dbt_manifest_cached(manifest_path, dbt_skip_foreign_tagged_ancestors=True)
+        stats = get_cache_stats()
         assert stats["misses"] >= 2
 
 
