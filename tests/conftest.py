@@ -7,7 +7,11 @@ from unittest.mock import MagicMock
 import pytest
 
 # Mock Airflow and its submodules before any fast_bi_dbt_runner imports
-_airflow_mock = MagicMock()
+class MockModule(MagicMock):
+    __path__ = []
+
+
+_airflow_mock = MockModule()
 _airflow_mock.utils.dates.days_ago = lambda n: None
 
 for mod_name in [
@@ -24,6 +28,7 @@ for mod_name in [
     "airflow.utils.dates",
     "airflow.utils.decorators",
     "airflow.utils.task_group",
+    "airflow.utils.trigger_rule",
     "airflow.providers",
     "airflow.providers.cncf",
     "airflow.providers.cncf.kubernetes",
