@@ -1,6 +1,7 @@
 import logging
 import fast_bi_dbt_runner.utils as utils
 from fast_bi_dbt_runner.cached_manifest_loader import load_dbt_manifest_cached
+from fast_bi_dbt_runner.shared_task_guard import build_shared_task_guard
 from airflow.utils.task_group import TaskGroup
 from airflow.utils.trigger_rule import TriggerRule
 from fast_bi_dbt_runner.bash_operator.dbt_operator import (
@@ -45,6 +46,9 @@ class DbtManifestParser:
                                                                           dbt_tag_descendants=self.dbt_tag_descendants,
                                                                           dbt_model_depends_on_snapshot=self.dbt_model_depends_on_snapshot,
                                                                           dbt_skip_foreign_tagged_ancestors=self.dbt_skip_foreign_tagged_ancestors)
+        # DBT_SKIP_IF_BUILT_BY_FASTER_DAG: per-node tasks are skipped at run time
+        # when a faster sibling DAG already built the same node (None = off).
+        self.shared_task_guard = build_shared_task_guard(airflow_vars, manifest_path)
         self.dbt_tasks = {}
         self.fqn_unique_list = []
         self.existing_task_groups = {}
@@ -58,8 +62,17 @@ class DbtManifestParser:
         return utils.get_valid_start_date(start_date_raw)
 
     def create_dbt_bash_task(self, dbt_command, running_rule, task_params=None, node_name=None, node_alias=None,
-                             parent_group=None):
+                             parent_group=None, shared_node=False):
         try:
+            guard_kwargs = {}
+            if self.shared_task_guard is not None:
+                # A skipped upstream task must not skip the tasks after it.
+                if running_rule == TriggerRule.ALL_SUCCESS:
+                    running_rule = TriggerRule.NONE_FAILED
+                # Only tasks that build exactly one node can be compared between DAGs.
+                if shared_node:
+                    guard_kwargs = {"pre_execute": self.shared_task_guard}
+
             if self.airflow_vars.get("TARGET"):
                 target = self.airflow_vars.get("TARGET")
             else:
@@ -87,7 +100,8 @@ class DbtManifestParser:
                     task_group=parent_group,
                     trigger_rule=running_rule,
                     debug=self.debug,
-                    empty=True if self.airflow_vars.get("E2E_MODE_EMPTY") else False
+                    empty=True if self.airflow_vars.get("E2E_MODE_EMPTY") else False,
+                    **guard_kwargs
                 )
             elif dbt_command == 'build':
                 task_id = node_alias if node_alias else "build_all_models"
@@ -113,7 +127,8 @@ class DbtManifestParser:
                     warehouse_type=warehouse_type,
                     trigger_rule=running_rule,
                     task_group=parent_group,
-                    debug=self.debug
+                    debug=self.debug,
+                    **guard_kwargs
                 )
             elif dbt_command == 'seed':
                 task_id = node_alias if node_name and node_alias else "seed_all_models"
@@ -128,7 +143,8 @@ class DbtManifestParser:
                     warehouse_type=warehouse_type,
                     trigger_rule=running_rule,
                     task_group=parent_group,
-                    debug=self.debug
+                    debug=self.debug,
+                    **guard_kwargs
                 )
             elif dbt_command == 'snapshot':
                 task_id = node_alias if node_name and node_alias else "snapshot_all_models"
@@ -143,7 +159,8 @@ class DbtManifestParser:
                     warehouse_type=warehouse_type,
                     task_group=parent_group,
                     trigger_rule=running_rule,
-                    debug=self.debug
+                    debug=self.debug,
+                    **guard_kwargs
                 )
             elif dbt_command == 'source freshness':
                 task_id = node_alias if node_name and node_alias else "source_all_models"
@@ -156,7 +173,8 @@ class DbtManifestParser:
                     warehouse_type=warehouse_type,
                     task_group=parent_group,
                     trigger_rule=running_rule,
-                    debug=self.debug
+                    debug=self.debug,
+                    **guard_kwargs
                 )
             elif dbt_command == 're_data':
                 dbt_run = DbtReDataOperator(
@@ -209,7 +227,8 @@ class DbtManifestParser:
                                                                  task_params=task_params,
                                                                  node_name=task_name,
                                                                  node_alias=task_alias,
-                                                                 parent_group=parent_group)
+                                                                 parent_group=parent_group,
+                                                                 shared_node=True)
             return
 
         # Get the current level and create a subgroup
